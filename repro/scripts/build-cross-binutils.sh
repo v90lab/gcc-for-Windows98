@@ -7,7 +7,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
-require_dir "$SRC_DIR/binutils-gdb/.git" "missing binutils sources; run fetch-sources.sh first"
+require_dir "$SRC_DIR/binutils-gdb" "missing binutils sources; run fetch-sources.sh first"
 
 rm -rf "$BUILD_DIR/binutils-run"
 mkdir -p "$BUILD_DIR/binutils-run"

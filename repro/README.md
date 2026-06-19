@@ -7,7 +7,7 @@ Produces two toolchain artifacts and a consumer Docker image:
 | Artifact        | Path                                          | Description                                     |
 |-----------------|-----------------------------------------------|-------------------------------------------------|
 | Cross toolchain | `out/package/gcc-win98-toolchain.tar.xz`      | Linux-hosted MinGW cross compiler (→ Win98)     |
-| Native toolset  | `out/package/gcc-win98-native-toolset.tar.xz` | Windows-hosted compiler (runs on Win98)         |
+| Native toolset  | `out/package/gcc-win98-native-toolset.zip`    | Windows-hosted compiler (runs on Win98)         |
 | Consumer image  | `gcc-win98-consumer:latest`                   | Docker image with both toolchains + Wine        |
 
 ## Quick Start
@@ -84,7 +84,7 @@ Orchestrated by `scripts/run-toolchain-build.sh`:
 Builds Windows-hosted tools that run natively on Windows 98:
 
 5. Build native GCC, binutils, mingw-w64, pthread9x via Canadian Cross
-6. Package as `gcc-win98-native-toolset.tar.xz`
+6. Package as `gcc-win98-native-toolset.zip`
 
 ### Phase 3: Smoke Tests
 

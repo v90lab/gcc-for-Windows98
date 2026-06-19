@@ -35,6 +35,15 @@ mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 # === STEP 4: Configure binutils ===
+# Inject WIN98_TARGET_{CPPFLAGS,LDFLAGS} via env so configure propagates them
+# to every host-binary link (--host=i686-w64-mingw32 means host = Win98).
+export CPPFLAGS="${CPPFLAGS:-} $WIN98_TARGET_CPPFLAGS"
+# -static-libgcc / -static-libstdc++ matches the project's static-linking
+# design (see top-level README). Almost all binutils binaries are plain C so
+# these flags are a no-op for them; the one that needs them is gdbserver,
+# which otherwise picks up libgcc_s_dw2-1.dll and is unloadable on Win98.
+export LDFLAGS="${LDFLAGS:-} -static-libgcc -static-libstdc++ $WIN98_TARGET_LDFLAGS"
+
 log "configuring native-host binutils"
 run_logged configure-native-host-binutils.log "$SRC_DIR/configure" \
     --build=x86_64-pc-linux-gnu \

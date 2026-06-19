@@ -71,6 +71,15 @@ cd "$BUILD_DIR"
 # - CC_FOR_BUILD/CXX_FOR_BUILD: Use system gcc which has working cc1plus
 
 log "using native dependency prefix: $MINGW_DEPS_DIR"
+
+# Inject WIN98_TARGET_{CPPFLAGS,LDFLAGS} via env. --host=i686-w64-mingw32, so
+# host-built binaries (gcc.exe, g++.exe, cc1.exe, cc1plus.exe, ...) run on
+# Win98 and need these flags. We don't touch FLAGS_FOR_TARGET — those build
+# the libgcc/libstdc++ that user programs link against, where Win98-host
+# linker quirks don't apply.
+export CPPFLAGS="${CPPFLAGS:-} $WIN98_TARGET_CPPFLAGS"
+export LDFLAGS="${LDFLAGS:-} $WIN98_TARGET_LDFLAGS"
+
 log "configuring native-host GCC"
 run_logged configure-native-host-gcc.log "$SRC_DIR/configure" \
     --build=x86_64-pc-linux-gnu \

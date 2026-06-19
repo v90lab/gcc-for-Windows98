@@ -8,7 +8,7 @@ This directory contains a Docker-based reproducible build environment for
 - Produce two toolchain artifacts that other projects can consume:
   - **Cross toolchain** (`gcc-win98-toolchain.tar.xz`): a Linux-hosted
     MinGW cross compiler targeting `i686-w64-mingw32`.
-  - **Native toolset** (`gcc-win98-native-toolset.tar.xz`): a
+  - **Native toolset** (`gcc-win98-native-toolset.zip`): a
     Windows-hosted compiler (built via Canadian Cross) that runs on and
     targets Windows 98-class machines.
 - Provide a **consumer Docker image** (`gcc-win98-consumer:latest`) with
@@ -195,7 +195,7 @@ The resulting binaries run on Windows 98 and produce Windows 98 code.
 | `build-native-binutils.sh`  | Native-host binutils                                           |
 | `build-native-mingw-w64.sh` | Native-host mingw-w64 CRT                                      |
 | `build-native-pthread9x.sh` | Native-host pthread9x                                          |
-| `package-native-toolset.sh` | Packages into `out/package/gcc-win98-native-toolset.tar.xz`    |
+| `package-native-toolset.sh` | Packages into `out/package/gcc-win98-native-toolset.zip`       |
 
 **Notable Canadian Cross workarounds:**
 - `--disable-libstdcxx-pch` — avoids PCH incompatibilities.
@@ -334,7 +334,7 @@ Execution flow:
 | Artifact           | Path                                          | Description                              |
 |--------------------|-----------------------------------------------|------------------------------------------|
 | Cross toolchain    | `out/package/gcc-win98-toolchain.tar.xz`      | Linux-hosted MinGW cross compiler        |
-| Native toolset     | `out/package/gcc-win98-native-toolset.tar.xz` | Windows-hosted native compiler           |
+| Native toolset     | `out/package/gcc-win98-native-toolset.zip`    | Windows-hosted native compiler           |
 | Toolchain manifest | `out/package/toolchain-manifest.json`         | SHA256, GCC version, thread model        |
 | Consumer image     | `gcc-win98-consumer:latest`                   | Docker image with both toolchains + Wine |
 | Build logs         | `logs/`                                       | Per-step log files with timestamps       |

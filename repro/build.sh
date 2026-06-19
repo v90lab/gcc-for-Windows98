@@ -6,23 +6,44 @@ set -euo pipefail
 # build.sh - One-shot build orchestrator for gcc-for-Windows98 toolchain
 # ============================================================================
 # Usage: ./build.sh [--jobs N] [--matrix ID_OR_LABEL] [--generate-patches] [--no-cache]
-#        [--clean] [--retry] [--help|-h]
+#        [--clean] [--retry] [--with-extras|--without-extras] [--help|-h]
 #   --jobs N      Parallel build jobs (default: auto-detect or 2)
 #   --matrix M    Matrix selector (numeric index or matrix.version label, default: 0)
 #   --generate-patches  Regenerate versioned patch folders from current clean sources
 #   --no-cache    Force rebuild Docker images without cache
 #   --clean       Clean out/ build/ logs/ AND src/ directories before build
 #   --retry       Smart retry: git-reset sources (preserve clones), clean artifacts only
+#   --with-extras       Build the extras tarball (busybox, make, ctags, diffutils, patch, gdb, muon) [default]
+#   --without-extras    Skip the extras tarball
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_NAME="gcc-win98"
-JOBS="${JOBS:-$(nproc 2>/dev/null || echo 2)}"
+
+# Precedence for JOBS / MATRIX / BUILD_EXTRAS:
+#   1. Variable already set in the calling shell ("JOBS=8 ./build.sh")
+#   2. Value persisted in repro/.env
+#   3. Built-in default (nproc for JOBS, 0 for MATRIX, 1 for BUILD_EXTRAS)
+# Capture any shell-supplied overrides BEFORE sourcing .env so the file
+# can't clobber them.
+JOBS_OVERRIDE="${JOBS:-}"
+MATRIX_OVERRIDE="${MATRIX:-}"
+BUILD_EXTRAS_OVERRIDE="${BUILD_EXTRAS:-}"
+
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$SCRIPT_DIR/.env"
+  set +a
+fi
+
+JOBS="${JOBS_OVERRIDE:-${JOBS:-$(nproc 2>/dev/null || echo 2)}}"
 NO_CACHE=""
 CLEAN=""
 RETRY=""
-MATRIX="${MATRIX:-0}"
+MATRIX="${MATRIX_OVERRIDE:-${MATRIX:-0}}"
 GENERATE_PATCHES="${GENERATE_PATCHES:-0}"
+BUILD_EXTRAS="${BUILD_EXTRAS_OVERRIDE:-${BUILD_EXTRAS:-1}}"
 
 # --- Parse arguments ----------------------------------------------------------
 while [[ $# -gt 0 ]]; do
@@ -49,6 +70,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --retry)
       RETRY="yes"
+      shift
+      ;;
+    --with-extras)
+      BUILD_EXTRAS=1
+      shift
+      ;;
+    --without-extras)
+      BUILD_EXTRAS=0
       shift
       ;;
     --help|-h)
@@ -110,17 +139,24 @@ docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d toolchain-builder
 
 # --- Run full pipeline on host (run-toolchain-build uses docker compose exec) ----
 echo "[*] Running build pipeline via scripts/run-toolchain-build.sh..."
+EXTRAS_FLAG=""
+if [[ "$BUILD_EXTRAS" == "1" ]]; then
+  EXTRAS_FLAG="--with-extras"
+else
+  EXTRAS_FLAG="--without-extras"
+fi
+
 if [[ "$GENERATE_PATCHES" == "1" ]]; then
   (
     cd "$SCRIPT_DIR"
-    JOBS="$JOBS" MATRIX="$MATRIX" GENERATE_PATCHES="$GENERATE_PATCHES" \
-      ./scripts/run-toolchain-build.sh --jobs "$JOBS" --generate-patches
+    JOBS="$JOBS" MATRIX="$MATRIX" GENERATE_PATCHES="$GENERATE_PATCHES" BUILD_EXTRAS="$BUILD_EXTRAS" \
+      ./scripts/run-toolchain-build.sh --jobs "$JOBS" --generate-patches "$EXTRAS_FLAG"
   )
 else
   (
     cd "$SCRIPT_DIR"
-    JOBS="$JOBS" MATRIX="$MATRIX" GENERATE_PATCHES="$GENERATE_PATCHES" \
-      ./scripts/run-toolchain-build.sh --jobs "$JOBS"
+    JOBS="$JOBS" MATRIX="$MATRIX" GENERATE_PATCHES="$GENERATE_PATCHES" BUILD_EXTRAS="$BUILD_EXTRAS" \
+      ./scripts/run-toolchain-build.sh --jobs "$JOBS" "$EXTRAS_FLAG"
   )
 fi
 
@@ -132,7 +168,8 @@ fi
 
 # --- Verify artifacts exist ---------------------------------------------------
 CROSS_PKG="$SCRIPT_DIR/out/package/gcc-win98-toolchain.tar.xz"
-NATIVE_PKG="$SCRIPT_DIR/out/package/gcc-win98-native-toolset.tar.xz"
+NATIVE_PKG="$SCRIPT_DIR/out/package/gcc-win98-native-toolset.zip"
+EXTRAS_PKG="$SCRIPT_DIR/out/package/gcc-win98-extras.zip"
 
 if [[ ! -f "$CROSS_PKG" ]]; then
   echo "[X] Cross toolchain package not found: $CROSS_PKG" >&2
@@ -141,6 +178,11 @@ fi
 
 if [[ ! -f "$NATIVE_PKG" ]]; then
   echo "[X] Native toolset package not found: $NATIVE_PKG" >&2
+  exit 1
+fi
+
+if [[ "$BUILD_EXTRAS" == "1" && ! -f "$EXTRAS_PKG" ]]; then
+  echo "[X] Extras package not found: $EXTRAS_PKG" >&2
   exit 1
 fi
 
@@ -175,6 +217,9 @@ echo "Build Complete!"
 echo "========================================"
 echo "Cross toolchain:  $CROSS_PKG"
 echo "Native toolset:   $NATIVE_PKG"
+if [[ "$BUILD_EXTRAS" == "1" ]]; then
+  echo "Extras toolset:   $EXTRAS_PKG"
+fi
 echo "Consumer image:   ${PROJECT_NAME}-consumer:latest"
 echo ""
 echo "Quick start:"

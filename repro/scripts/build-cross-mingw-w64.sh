@@ -7,7 +7,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
-require_dir "$SRC_DIR/mingw-w64/.git" "missing mingw sources; run fetch-sources.sh first"
+require_dir "$SRC_DIR/mingw-w64" "missing mingw sources; run fetch-sources.sh first"
 
 mkdir -p "$BUILD_DIR/mingw-w64-headers-run" "$BUILD_DIR/mingw-w64-crt-run"
 

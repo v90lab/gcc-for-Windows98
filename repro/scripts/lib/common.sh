@@ -7,9 +7,41 @@ set -euo pipefail
 # Usage: source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 # ============================================================================
 
+# Git Bash on Windows (MSYS / Git for Windows) translates Unix-style absolute
+# paths in command arguments to Windows paths (e.g. /work/scripts/foo.sh
+# becomes C:/git-sdk-64/work/scripts/foo.sh) before `docker compose exec`
+# passes them to the container. We can't blanket-disable conversion because
+# the host docker-compose.yml path still needs Windows translation for
+# docker.exe to find it. Instead, individual builder_*/consumer_* helpers
+# below prepend an extra slash to in-container paths (//work/... — MSYS
+# skips conversion on double-slash paths, and the in-container bash
+# collapses them to /work/... per POSIX).
+in_container_path() {
+  # Echo a path that survives MSYS arg conversion intact when passed as a
+  # standalone arg to docker compose exec. On Linux this is a no-op; on
+  # Git Bash, the extra leading slash bypasses the rootfs-prefix mapping
+  # that would otherwise rewrite /work/... to C:/git-sdk-XX/work/....
+  if [[ -n "${MSYSTEM:-}" ]]; then
+    echo "/$1"
+  else
+    echo "$1"
+  fi
+}
+
 # --- Directory Layout -------------------------------------------------------
 COMMON_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${COMMON_LIB_DIR}/../.." && pwd)"
+# Scripts are entered as `bash //work/scripts/...` on Git Bash (the `//` is the
+# MSYS-conversion guard from in_container_path). POSIX leaves leading `//`
+# implementation-defined; bash preserves it through cd...pwd, and wine then
+# treats `//work/...` as a Windows UNC path and fails to find the file. Collapse
+# any leading double-slash so every path derived from ROOT_DIR is wine-safe.
+while [[ "$ROOT_DIR" == //* ]]; do
+  ROOT_DIR="${ROOT_DIR#/}"
+done
+while [[ "$COMMON_LIB_DIR" == //* ]]; do
+  COMMON_LIB_DIR="${COMMON_LIB_DIR#/}"
+done
 SRC_DIR="$ROOT_DIR/src"
 BUILD_DIR="$ROOT_DIR/build"
 LOG_DIR="$ROOT_DIR/logs"
@@ -21,6 +53,18 @@ JOBS="${JOBS:-$(nproc 2>/dev/null || echo 2)}"
 TARGET="${TARGET:-i686-w64-mingw32}"
 PREFIX="${PREFIX:-$OUT_DIR/toolchain}"
 MATRIX="${MATRIX:-0}"
+
+# --- Win98-host binary flags ------------------------------------------------
+# Reference (don't auto-inherit) from build-native-*.sh that produces a
+# Win98-hosted binary. CPPFLAGS gate mingw-w64 header feature detection so
+# configure scripts don't autodetect Vista+ APIs (GetFileInformationByHandleEx,
+# GetFinalPathNameByHandleA, FindFirstVolumeW, ...) that would later fail to
+# resolve on Win98's PE loader. LDFLAGS strip the DllCharacteristics bits the
+# Win98 loader doesn't recognize (DYNAMIC_BASE / NX_COMPAT — advisory on NT
+# but suspicious on 9x) and pin MajorSubsystemVersion ≤ 4 against any future
+# binutils default bump.
+WIN98_TARGET_CPPFLAGS="-D_WIN32_WINNT=0x0400 -DWINVER=0x0400"
+WIN98_TARGET_LDFLAGS="-Wl,--disable-dynamicbase -Wl,--disable-nxcompat -Wl,--major-subsystem-version=4"
 
 # Status sentinel scope prevents false resume/skip across different build
 # configurations (e.g., matrix/target changes).
@@ -47,11 +91,87 @@ MINGW_W64_FETCH_REF=""
 PTHREAD9X_FETCH_SOURCE=""
 PTHREAD9X_FETCH_REF=""
 
+BUSYBOX_W32_FETCH_SOURCE=""
+BUSYBOX_W32_FETCH_REF=""
+
+MAKE_FETCH_SOURCE=""
+MAKE_FETCH_REF=""
+
+CTAGS_FETCH_SOURCE=""
+CTAGS_FETCH_REF=""
+
+DIFFUTILS_FETCH_SOURCE=""
+DIFFUTILS_FETCH_REF=""
+
+PATCH_FETCH_SOURCE=""
+PATCH_FETCH_REF=""
+
+MUON_FETCH_SOURCE=""
+MUON_FETCH_REF=""
+
+# Optional tarball overrides per component (empty if not configured).
+# When *_TARBALL_URL is set, fetch-sources.sh prefers it over a git clone.
+GCC_TARBALL_URL=""
+GCC_TARBALL_SHA512=""
+GCC_TARBALL_SHA256=""
+GCC_TARBALL_STRIP=""
+
+BINUTILS_TARBALL_URL=""
+BINUTILS_TARBALL_SHA512=""
+BINUTILS_TARBALL_SHA256=""
+BINUTILS_TARBALL_STRIP=""
+
+MINGW_W64_TARBALL_URL=""
+MINGW_W64_TARBALL_SHA512=""
+MINGW_W64_TARBALL_SHA256=""
+MINGW_W64_TARBALL_STRIP=""
+
+PTHREAD9X_TARBALL_URL=""
+PTHREAD9X_TARBALL_SHA512=""
+PTHREAD9X_TARBALL_SHA256=""
+PTHREAD9X_TARBALL_STRIP=""
+
+BUSYBOX_W32_TARBALL_URL=""
+BUSYBOX_W32_TARBALL_SHA512=""
+BUSYBOX_W32_TARBALL_SHA256=""
+BUSYBOX_W32_TARBALL_STRIP=""
+
+MAKE_TARBALL_URL=""
+MAKE_TARBALL_SHA512=""
+MAKE_TARBALL_SHA256=""
+MAKE_TARBALL_STRIP=""
+
+CTAGS_TARBALL_URL=""
+CTAGS_TARBALL_SHA512=""
+CTAGS_TARBALL_SHA256=""
+CTAGS_TARBALL_STRIP=""
+
+DIFFUTILS_TARBALL_URL=""
+DIFFUTILS_TARBALL_SHA512=""
+DIFFUTILS_TARBALL_SHA256=""
+DIFFUTILS_TARBALL_STRIP=""
+
+PATCH_TARBALL_URL=""
+PATCH_TARBALL_SHA512=""
+PATCH_TARBALL_SHA256=""
+PATCH_TARBALL_STRIP=""
+
+MUON_TARBALL_URL=""
+MUON_TARBALL_SHA512=""
+MUON_TARBALL_SHA256=""
+MUON_TARBALL_STRIP=""
+
 # Component release/version values from config.json matrix (distinct from fetch refs).
 GCC_COMPONENT_VERSION=""
 BINUTILS_COMPONENT_VERSION=""
 MINGW_W64_COMPONENT_VERSION=""
 PTHREAD9X_COMPONENT_VERSION=""
+BUSYBOX_W32_COMPONENT_VERSION=""
+MAKE_COMPONENT_VERSION=""
+CTAGS_COMPONENT_VERSION=""
+DIFFUTILS_COMPONENT_VERSION=""
+PATCH_COMPONENT_VERSION=""
+MUON_COMPONENT_VERSION=""
 MATRIX_SELECTED_LABEL=""
 
 load_fetch_config_from_json() {
@@ -205,6 +325,113 @@ ensure_shallow_git_checkout() {
   git -C "$dest" checkout --detach FETCH_HEAD
 }
 
+# --- Tarball Helpers --------------------------------------------------------
+# Download a release tarball, verify its checksum, and extract it to a
+# destination directory. Faster than git clone for large repos because there
+# is no per-file checkout phase — tar extracts as one streaming write.
+#
+# Args:
+#   $1  url           tarball URL (https; any tar-recognized compression)
+#   $2  checksum_alg  "sha512", "sha256", or "" to skip verification
+#   $3  checksum      expected digest in lowercase hex (or "" if alg is "")
+#   $4  dest          destination directory (created or repopulated)
+#   $5  strip         --strip-components value (defaults to 1)
+#
+# Successful extraction writes a sentinel file at $dest/.tarball-extracted so
+# re-runs skip the download. Remove the sentinel (or the whole $dest) to
+# force a fresh fetch.
+download_and_extract_tarball() {
+  local url="$1"
+  local checksum_alg="$2"
+  local checksum="$3"
+  local dest="$4"
+  local strip="${5:-1}"
+  local marker="$dest/.tarball-extracted"
+
+  if [[ -f "$marker" ]]; then
+    log "tarball already extracted at $dest (marker present)"
+    return 0
+  fi
+
+  log "downloading tarball: $url"
+  rm -rf "$dest"
+  mkdir -p "$dest"
+
+  local tmp
+  tmp=$(mktemp)
+  if ! curl -fLo "$tmp" "$url"; then
+    rm -f "$tmp"
+    die "tarball download failed: $url"
+  fi
+
+  if [[ -n "$checksum_alg" && -n "$checksum" ]]; then
+    local actual
+    case "$checksum_alg" in
+      sha512) actual=$(sha512sum "$tmp" | awk '{print $1}') ;;
+      sha256) actual=$(sha256sum "$tmp" | awk '{print $1}') ;;
+      *)
+        rm -f "$tmp"
+        die "unknown checksum algorithm: $checksum_alg"
+        ;;
+    esac
+    if [[ "$actual" != "$checksum" ]]; then
+      rm -f "$tmp"
+      die "$checksum_alg mismatch for $url: expected $checksum, got $actual"
+    fi
+    log "$checksum_alg verified: $actual"
+  else
+    warn "no checksum configured for $url — relying on TLS only"
+  fi
+
+  log "extracting to $dest (--strip-components=$strip)"
+  if ! tar -xf "$tmp" -C "$dest" --strip-components="$strip"; then
+    rm -f "$tmp"
+    die "tarball extraction failed for $url"
+  fi
+  rm -f "$tmp"
+
+  touch "$marker"
+  log "tarball extraction complete: $dest"
+}
+
+# Dispatcher: prefer tarball if URL is set, otherwise shallow git clone.
+# All "$component_*" args are positional so callers can pass the relevant
+# *_TARBALL_*/*_FETCH_* variables in directly.
+#
+# Args:
+#   $1  name           component name (used for log and dest dir)
+#   $2  fetch_source   git URL (used when tarball URL is empty)
+#   $3  fetch_ref      git tag/branch/SHA (used when tarball URL is empty)
+#   $4  tarball_url    optional tarball URL
+#   $5  tarball_sha512 optional sha512
+#   $6  tarball_sha256 optional sha256
+#   $7  tarball_strip  optional --strip-components value (default 1)
+fetch_component() {
+  local name="$1"
+  local fetch_source="$2"
+  local fetch_ref="$3"
+  local tarball_url="$4"
+  local tarball_sha512="$5"
+  local tarball_sha256="$6"
+  local tarball_strip="${7:-1}"
+  local dest="$SRC_DIR/$name"
+
+  if [[ -n "$tarball_url" ]]; then
+    log "$name: tarball=$tarball_url"
+    local alg="" sum=""
+    if [[ -n "$tarball_sha512" ]]; then
+      alg="sha512"; sum="$tarball_sha512"
+    elif [[ -n "$tarball_sha256" ]]; then
+      alg="sha256"; sum="$tarball_sha256"
+    fi
+    download_and_extract_tarball "$tarball_url" "$alg" "$sum" "$dest" "$tarball_strip"
+  else
+    log "$name: source=$fetch_source ref=$fetch_ref"
+    ensure_shallow_git_checkout "$fetch_source" "$fetch_ref" "$dest"
+    verify_checkout_ref "$dest" "$fetch_ref" "$name"
+  fi
+}
+
 patch_url_for_commit() {
   local repo="$1"
   local sha="$2"
@@ -251,7 +478,8 @@ builder_exec() {
 builder_script() {
   local script_rel="$1"
   shift
-  local full_path="/work/scripts/$script_rel"
+  local full_path
+  full_path="$(in_container_path "/work/scripts/$script_rel")"
   docker compose -f "$PROJECT_DIR/docker-compose.yml" exec -T toolchain-builder \
     env JOBS="$JOBS" TARGET="$TARGET" MATRIX="$MATRIX" GENERATE_PATCHES="${GENERATE_PATCHES:-0}" \
     bash "$full_path" "$@"
@@ -278,6 +506,7 @@ consumer_exec() {
 consumer_script() {
   local script_rel="$1"
   shift
-  local full_path="/workspace/scripts/$script_rel"
+  local full_path
+  full_path="$(in_container_path "/workspace/scripts/$script_rel")"
   docker compose -f "$PROJECT_DIR/docker-compose.yml" exec -T consumer bash "$full_path" "$@"
 }

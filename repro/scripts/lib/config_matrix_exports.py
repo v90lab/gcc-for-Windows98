@@ -17,6 +17,12 @@ MAPPING = {
     "binutils": "BINUTILS",
     "mingw-w64": "MINGW_W64",
     "pthread9x": "PTHREAD9X",
+    "busybox-w32": "BUSYBOX_W32",
+    "make": "MAKE",
+    "ctags": "CTAGS",
+    "diffutils": "DIFFUTILS",
+    "patch": "PATCH",
+    "muon": "MUON",
 }
 
 VERSION_ONLY_MAPPING = {
@@ -59,6 +65,26 @@ def build_exports(config: Dict[str, Any], selector: str) -> Dict[str, str]:
             exports[f"{prefix}_FETCH_REF"] = str(commit)
         if version:
             exports[f"{prefix}_COMPONENT_VERSION"] = str(version)
+
+        # Optional tarball metadata. When tarball_url is present,
+        # fetch-sources.sh will prefer the tarball over a git clone for
+        # this component. tarball_sha512 (or _sha256) is optional; if set,
+        # the download is verified. tarball_strip defaults to 1 (the
+        # standard "drop the top-level versioned dir" behavior).
+        tarball = comp.get("tarball")
+        if isinstance(tarball, dict):
+            t_url = tarball.get("url")
+            t_sha512 = tarball.get("sha512")
+            t_sha256 = tarball.get("sha256")
+            t_strip = tarball.get("strip")
+            if t_url:
+                exports[f"{prefix}_TARBALL_URL"] = str(t_url)
+            if t_sha512:
+                exports[f"{prefix}_TARBALL_SHA512"] = str(t_sha512)
+            if t_sha256:
+                exports[f"{prefix}_TARBALL_SHA256"] = str(t_sha256)
+            if t_strip is not None:
+                exports[f"{prefix}_TARBALL_STRIP"] = str(t_strip)
 
     for key, export_name in VERSION_ONLY_MAPPING.items():
         comp = components.get(key)

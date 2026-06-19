@@ -6,12 +6,30 @@ services:
     working_dir: /work
     env_file:
       - .env
-    environment:
-      - JOBS=${JOBS:-2}
-      - TARGET=${TARGET:-i686-w64-mingw32}
-      - PREFIX=${PREFIX:-/work/out/toolchain}
+    # NOTE: do NOT add `environment:` overrides for TARGET/PREFIX here. On
+    # Git Bash for Windows, ${PREFIX:-/work/out/toolchain} expansion routes
+    # through the MSYS layer, which rewrites `/work/...` to
+    # `C:/git-sdk-64/work/...` before the value reaches the container. The
+    # env_file directive loads .env straight into the container with no
+    # such rewrite.
     volumes:
       - ./:/work
+      # /work/build and /work/src both see heavy I/O — build/ from
+      # compile output, src/ from git checkouts and tarball extractions
+      # (the gcc source tree alone is ~100k files). Named docker volumes
+      # keep both on native ext4 inside the Linux VM instead of
+      # round-tripping every write through Docker Desktop's 9p layer to
+      # the Windows host. The named volumes shadow the host's repro/build
+      # and repro/src directories at these mount points — those host
+      # directories become invisible to the container while the volumes
+      # are mounted. No-op on Linux hosts (no perf hit, just an isolated
+      # workspace).
+      - gcc-win98-build:/work/build
+      - gcc-win98-src:/work/src
+    # Keep the container alive in detached mode. The previous tty+stdin_open
+    # combo works on Linux but Docker Desktop on Windows lets bash exit
+    # immediately when no terminal is attached.
+    command: ["sleep", "infinity"]
     tty: true
     stdin_open: true
 
@@ -25,8 +43,21 @@ services:
       - TARGET=${TARGET:-i686-w64-mingw32}
       - CROSS_PREFIX=/opt/cross-toolset
       - NATIVE_PREFIX=/opt/native-toolset
-      - PATH=/opt/cross-toolset/bin:/opt/native-toolset/bin:${PATH}
+      # NOTE: do NOT add a PATH override here. On Git Bash for Windows,
+      # ${PATH} expansion at compose-parse time pulls in the *host*
+      # Windows PATH (C:/Program Files/Git/usr/bin:...), which has no
+      # /usr/bin and breaks `exec sleep` (the keepalive command). The
+      # consumer Dockerfile's `ENV PATH=...` already sets the right value,
+      # expanded inside the image at build time.
     volumes:
       - ./:/workspace
+    command: ["sleep", "infinity"]
     tty: true
     stdin_open: true
+
+volumes:
+  # Named volumes for /work/build and /work/src on the toolchain-builder
+  # service. See the comment on that service for the I/O rationale.
+  # To wipe either across builds: `docker compose down -v`.
+  gcc-win98-build:
+  gcc-win98-src:

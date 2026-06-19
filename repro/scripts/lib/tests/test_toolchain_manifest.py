@@ -49,7 +49,7 @@ class ToolchainManifestTests(unittest.TestCase):
 
     def test_build_manifest_native_structure(self):
         manifest = build_manifest(
-            artifact_filename="gcc-win98-native-toolset.tar.xz",
+            artifact_filename="gcc-win98-native-toolset.zip",
             artifact_sha256="beadfeed",
             artifact_size=456,
             gcc_version="11.1.0",
@@ -57,7 +57,7 @@ class ToolchainManifestTests(unittest.TestCase):
             package_kind="native-toolset",
             compiler_features={"threading_model": "posix", "pthread": "unverified", "std_thread": "unverified", "file_io": "unverified"},
         )
-        self.assertEqual(manifest["artifact"]["filename"], "gcc-win98-native-toolset.tar.xz")
+        self.assertEqual(manifest["artifact"]["filename"], "gcc-win98-native-toolset.zip")
         self.assertEqual(manifest["toolchain"]["package_kind"], "native-toolset")
 
     def test_main_writes_output(self):

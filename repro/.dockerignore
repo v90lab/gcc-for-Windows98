@@ -1,0 +1,36 @@
+# Compatible with both the legacy builder ("Sending build context to Docker
+# daemon ...") and BuildKit. Avoids `**` since the legacy builder does not
+# expand it as a recursive glob.
+#
+# Strategy: ignore everything one level deep inside out/, then re-include
+# out/package/, which is the only path the consumer Dockerfile consumes
+# (via `COPY ./out/package/*.tar.xz`). Excluding `out/*` (the children)
+# rather than `out` (the parent dir itself) is required so the legacy
+# builder honors the re-include below.
+
+out/*
+!out/package
+
+# Runtime workspaces — empty on host (shadowed by named volumes inside the
+# container) but excluded in case they ever get populated.
+build
+src
+
+# Logs
+logs
+
+# Local state
+.env
+.env.bak
+*.log
+
+# Tests aren't consumed by any Dockerfile.
+tests
+
+# Source-tree clutter unrelated to image builds.
+docs
+*.md
+.git
+.gitignore
+__pycache__
+*.pyc

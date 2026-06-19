@@ -59,8 +59,10 @@ fi
 declare -a SMOKE_STEPS=(
   "smoke-layout|smoke-verify-layout.sh|Phase 1: toolchain layout verification"
   "smoke-native-pe|smoke-check-native-pe.sh|Phase 2: native toolchain Win98 PE compatibility"
+  "smoke-extras-pe|smoke-check-extras-pe.sh|Phase 2b: extras toolset Win98 PE compatibility"
   "smoke-cmake-cross|smoke-cmake-build.sh cross ${JOBS}|Phase 3a: cross toolchain CMake build + Win98 check + wine run"
   "smoke-cmake-native|smoke-cmake-build.sh native ${JOBS}|Phase 3b: native toolchain CMake build + Win98 check + wine run"
+  "smoke-extras-wine|smoke-extras-wine-version.sh|Phase 3c: extras toolset wine --version smoke"
 )
 
 # --- Logging Setup -----------------------------------------------------------

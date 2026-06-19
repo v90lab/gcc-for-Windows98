@@ -10,11 +10,13 @@ set -euo pipefail
 #   [host]    – orchestration only (argument parsing, logging, dispatch)
 #   [builder] – cross/native toolchain build (docker compose exec toolchain-builder)
 #
-# Usage: ./scripts/run-toolchain-build.sh [--jobs N] [--target TARGET] [--resume [STEP]] [--generate-patches] [--help|-h]
+# Usage: ./scripts/run-toolchain-build.sh [--jobs N] [--target TARGET] [--resume [STEP]] [--generate-patches] [--with-extras|--without-extras] [--help|-h]
 #   --jobs N      Parallel build jobs (default: auto-detect)
 #   --target T    Target triplet (default: i686-w64-mingw32)
 #   --resume [S]  Resume from step S (or auto-detect last completed step)
 #   --generate-patches  Regenerate patch folders before prepare steps
+#   --with-extras       Build the extras tarball (busybox, make, ctags, diffutils, patch, gdb, muon)
+#   --without-extras    Skip the extras tarball
 #   --help, -h    Show this help and exit
 # ============================================================================
 
@@ -29,6 +31,7 @@ source "$SCRIPT_DIR/lib/common.sh"
 RESUME_MODE=""
 RESUME_FROM=""
 GENERATE_PATCHES="${GENERATE_PATCHES:-0}"
+BUILD_EXTRAS="${BUILD_EXTRAS:-1}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --jobs)
@@ -55,6 +58,14 @@ while [[ $# -gt 0 ]]; do
       export GENERATE_PATCHES
       shift
       ;;
+    --with-extras)
+      BUILD_EXTRAS=1
+      shift
+      ;;
+    --without-extras)
+      BUILD_EXTRAS=0
+      shift
+      ;;
     --help|-h)
       sed -n '/^# ===/,/^# ===/p' "$0" | sed 's/^# //'
       exit 0
@@ -64,17 +75,27 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+export BUILD_EXTRAS
 
 # --- Pre-flight Check --------------------------------------------------------
+# Use `compose ps --quiet` + `docker inspect` instead of `compose ps --filter
+# "status=running"`, because the latter flag isn't supported on every
+# `docker compose` version (notably older Docker Desktop builds on Windows).
 check_containers() {
-  if ! docker compose -f "$PROJECT_DIR/docker-compose.yml" ps --services --filter "status=running" 2>/dev/null | grep -q .; then
-    echo "ERROR: No containers are running. Start them with:"
-    echo "  docker compose up -d toolchain-builder"
+  local cid
+  cid=$(docker compose -f "$PROJECT_DIR/docker-compose.yml" ps --quiet toolchain-builder 2>/dev/null | head -n1)
+
+  if [[ -z "$cid" ]]; then
+    echo "ERROR: toolchain-builder service has no container. Start it with:"
+    echo "  docker compose -f repro/docker-compose.yml up -d toolchain-builder"
     exit 1
   fi
-  if ! docker compose -f "$PROJECT_DIR/docker-compose.yml" ps --services --filter "status=running" 2>/dev/null | grep -q "toolchain-builder"; then
-    echo "ERROR: toolchain-builder container is not running. Start it with:"
-    echo "  docker compose up -d toolchain-builder"
+
+  local state
+  state=$(docker inspect --format '{{.State.Status}}' "$cid" 2>/dev/null || echo "unknown")
+  if [[ "$state" != "running" ]]; then
+    echo "ERROR: toolchain-builder container exists but is not running (state=$state)."
+    echo "  docker compose -f repro/docker-compose.yml up -d --force-recreate toolchain-builder"
     exit 1
   fi
 }
@@ -110,10 +131,26 @@ declare -a NATIVE_STEPS=(
   "write-native-toolchain-manifest-v2|write-toolchain-manifest.sh|Write native toolchain manifest|builder"
 )
 
+# EXTRAS_STEPS: Win98-hosted user tools packaged as gcc-win98-extras.zip.
+# Ordered cheapest → heaviest so a build can fail fast on simpler tools.
+declare -a EXTRAS_STEPS=(
+  "build-native-busybox|build-native-busybox.sh|Build busybox-w32|builder"
+  "build-native-ctags|build-native-ctags.sh|Build universal-ctags|builder"
+  "build-native-make|build-native-make.sh|Build GNU make|builder"
+  "build-native-diffutils|build-native-diffutils.sh|Build GNU diffutils|builder"
+  "build-native-patch|build-native-patch.sh|Build GNU patch|builder"
+  "build-native-gdb|build-native-gdb.sh|Build gdb|builder"
+  "build-native-muon|build-native-muon.sh|Build muon|builder"
+  "build-bcrypt-shim|build-bcrypt-shim.sh|Build bcrypt.dll shim for gdb|builder"
+  "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder"
+  "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder"
+  "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder"
+)
+
 # --- Resume Logic -----------------------------------------------------------
 find_last_completed_step() {
   local last_completed=""
-  for step_def in "${CROSS_STEPS[@]}" "${NATIVE_STEPS[@]}"; do
+  for step_def in "${CROSS_STEPS[@]}" "${NATIVE_STEPS[@]}" "${EXTRAS_STEPS[@]}"; do
     IFS='|' read -r status_name _ _ _ <<< "$step_def"
     if is_done_in_builder "$status_name"; then
       last_completed="$status_name"
@@ -147,6 +184,7 @@ Project: $PROJECT_DIR
 Jobs: $JOBS
 Target: $TARGET
 Resume: ${RESUME_MODE:-no} ${RESUME_FROM:+($RESUME_FROM)}
+Extras: ${BUILD_EXTRAS}
 ========================================
 EOF
 
@@ -168,7 +206,7 @@ run_step() {
 
     # Resume: skip steps before the resume point
     if [[ -n "$RESUME_FROM" && "$status_name" != "$RESUME_FROM" ]]; then
-        for step_def in "${CROSS_STEPS[@]}" "${NATIVE_STEPS[@]}"; do
+        for step_def in "${CROSS_STEPS[@]}" "${NATIVE_STEPS[@]}" "${EXTRAS_STEPS[@]}"; do
             IFS='|' read -r sn _ _ _ <<< "$step_def"
             if [[ "$sn" == "$RESUME_FROM" ]]; then
                 break
@@ -227,6 +265,23 @@ if [[ $FAILED -eq 0 ]]; then
             break
         fi
     done
+fi
+
+# Extras (gated on BUILD_EXTRAS; only if native succeeded)
+if [[ $FAILED -eq 0 && "$BUILD_EXTRAS" == "1" ]]; then
+    echo "" | tee -a "$MASTER_LOG"
+    echo "[$(date +%H:%M:%S)] [host] === PHASE: EXTRAS toolset ===" | tee -a "$MASTER_LOG"
+    for step_def in "${EXTRAS_STEPS[@]}"; do
+        IFS='|' read -r status_name script_name description env <<< "$step_def"
+        if ! run_step "$status_name" "$script_name" "$description" "$env"; then
+            FAILED=1
+            FAILED_STEP="$description ($script_name)"
+            break
+        fi
+    done
+elif [[ "$BUILD_EXTRAS" != "1" ]]; then
+    echo "" | tee -a "$MASTER_LOG"
+    echo "[$(date +%H:%M:%S)] [host] === PHASE: EXTRAS toolset (SKIPPED via BUILD_EXTRAS=0) ===" | tee -a "$MASTER_LOG"
 fi
 
 # --- Summary ----------------------------------------------------------------

@@ -19,7 +19,7 @@ scripts/
 ├── verifiers/
 │   ├── pe-win98-check.sh             # Shared Win98 PE compatibility checker (sourceable + CLI)
 │   ├── check-for-imp-lib.sh          # CLI forbidden-import checker (sources pe-win98-check.sh)
-│   └── verify-native-package.sh      # Verify native package tar.xz contains required paths
+│   └── verify-native-package.sh      # Verify native package zip contains required paths
 ├── run-toolchain-build.sh            # Master orchestration: cross + native build with resume support
 ├── run-smoke-pipeline.sh             # Smoke test orchestrator (runs inside consumer container)
 ├── fetch-sources.sh                  # Clone source trees at pinned commits
@@ -40,7 +40,7 @@ scripts/
 ├── build-native-binutils.sh          # Build native-host binutils via Canadian Cross
 ├── build-native-mingw-w64.sh         # Build native-host mingw-w64 via Canadian Cross
 ├── build-native-pthread9x.sh         # Build native-host pthread9x via Canadian Cross
-├── package-native-toolset.sh         # Package native toolset as tar.xz
+├── package-native-toolset.sh         # Package native toolset as zip
 ├── smoke-verify-layout.sh            # Smoke Phase 1: toolchain layout verification
 ├── smoke-check-native-pe.sh          # Smoke Phase 2: Win98 PE compatibility of native binaries
 └── smoke-cmake-build.sh              # Smoke Phase 3: CMake+Ninja build + PE check + Wine run
@@ -158,7 +158,7 @@ Orchestrated by `run-toolchain-build.sh`:
 14. `build-native-binutils.sh` — Native-host binutils via Canadian Cross
 15. `build-native-mingw-w64.sh` — Native-host mingw-w64 via Canadian Cross
 16. `build-native-pthread9x.sh` — Native-host pthread9x via Canadian Cross
-17. `package-native-toolset.sh` — Package as `out/package/gcc-win98-native-toolset.tar.xz`
+17. `package-native-toolset.sh` — Package as `out/package/gcc-win98-native-toolset.zip`
 18. `write-toolchain-manifest.sh` — Write the native-toolset manifest JSON
 
 ### Phase 3: Smoke Tests
@@ -185,7 +185,7 @@ Orchestrated by `run-smoke-pipeline.sh` inside the consumer container:
 |--------|---------|
 | `pe-win98-check.sh` | Shared Win98 PE checker: defines `PE_FORBIDDEN_IMPORT_PATTERNS` and `pe_check_win98()`. Sourceable by other scripts; also usable as a standalone CLI tool. |
 | `check-for-imp-lib.sh` | CLI wrapper that sources `pe-win98-check.sh` and checks a binary for forbidden imports (UCRT, api-ms-win, vcruntime) |
-| `verify-native-package.sh` | Verifies that the native toolset tar.xz contains all required paths (compiler, headers, linker, libraries) |
+| `verify-native-package.sh` | Verifies that the native toolset zip contains all required paths (compiler, headers, linker, libraries) |
 
 ## Resume / Idempotency
 

@@ -16,7 +16,7 @@ require_step verify-native-compiler-features "run verify-compiler-features.sh na
 REPO_ROOT="$ROOT_DIR"
 SOURCE_DIR="$REPO_ROOT/out/native-toolset"
 PACKAGE_DIR="$REPO_ROOT/out/package"
-PACKAGE_NAME="gcc-win98-native-toolset.tar.xz"
+PACKAGE_NAME="gcc-win98-native-toolset.zip"
 PACKAGE_PATH="$PACKAGE_DIR/$PACKAGE_NAME"
 
 # === Ensure libgcc.a and libgcc_s_dw2-1.dll are in target lib dir ===
@@ -49,11 +49,25 @@ echo "Packaging native toolset..."
 echo "  Source: $SOURCE_DIR"
 echo "  Output: $PACKAGE_PATH"
 
-# Use xz -1 (fast, low memory) to avoid OOM issues on large toolsets
-XZ_OPT=-1 tar -C "$REPO_ROOT/out" \
-    --transform 's,^native-toolset,gcc_win98,' \
-    -cJf "$PACKAGE_PATH" \
-    native-toolset
+# Switched from tar.xz to zip so 7zip 9.20 on Win98 SE can extract in one
+# pass without spilling a ~700 MB scratch tar. zip also has no hardlink
+# concept, so the FAT32-incompatible hardlinks (g++.exe → c++.exe,
+# ld.exe → ld.bfd.exe, etc.) become independent full-content entries
+# automatically — no --hard-dereference equivalent needed.
+#
+# `cp -al` stages an instant hardlink-copy of the install tree under the
+# renamed top-level so zip writes "gcc_win98/..." instead of
+# "native-toolset/...". Hardlinks within the stage cost no disk; zip
+# dereferences them at archive time.
+#
+# The stage MUST live on the same filesystem as $SOURCE_DIR — `cp -al`
+# fails with EXDEV across devices. In the toolchain-builder container,
+# /work is a bind-mount and /tmp is the overlay FS, so mktemp's default
+# /tmp would break the hardlink call.
+STAGE=$(mktemp -d -p "$PACKAGE_DIR" gcc-win98-native-zip.XXXXXX)
+trap 'rm -rf "$STAGE"' EXIT INT TERM
+cp -al "$SOURCE_DIR" "$STAGE/gcc_win98"
+( cd "$STAGE" && zip -9 -q -r "$PACKAGE_PATH" gcc_win98 )
 
 echo ""
 echo "Package created successfully!"

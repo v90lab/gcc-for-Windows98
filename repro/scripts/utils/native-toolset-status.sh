@@ -16,7 +16,7 @@ status_step_line "package-native-toolset"
 status_step_line "write-native-toolchain-manifest-v2"
 
 status_section "native artifacts"
-NATIVE_PKG="$OUT_DIR/package/gcc-win98-native-toolset.tar.xz"
+NATIVE_PKG="$OUT_DIR/package/gcc-win98-native-toolset.zip"
 NATIVE_MANIFEST="$OUT_DIR/package/gcc-win98-native-toolset.json"
 NATIVE_FEATURES="$OUT_DIR/compiler-features/native.json"
 status_file_meta "$NATIVE_PKG"

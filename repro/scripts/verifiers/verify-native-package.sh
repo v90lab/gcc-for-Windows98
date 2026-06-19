@@ -4,7 +4,7 @@ set -euo pipefail
 REPRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$REPRO_ROOT/out/package"
-ARTIFACT_PATH="$PACKAGE_DIR/gcc-win98-native-toolset.tar.xz"
+ARTIFACT_PATH="$PACKAGE_DIR/gcc-win98-native-toolset.zip"
 NATIVE_DIR="$REPRO_ROOT/out/native-toolset"
 
 source "$SCRIPT_DIR/pe-win98-check.sh"
@@ -44,7 +44,10 @@ if [[ "$VERIFY_MODE" == "directory" ]]; then
         [[ -e "$SCAN_ROOT/$rel" ]]
     }
 else
-    FILE_LIST=$(tar -tJf "$ARTIFACT_PATH")
+    # zip has no hardlink/symlink concept — every path is stored as full
+    # content — so the FAT32-stub failure mode we hit with .tar.xz can't
+    # happen here.
+    FILE_LIST=$(unzip -Z1 "$ARTIFACT_PATH")
     ROOT_PREFIX=""
     TOP_LEVELS=$(printf '%s\n' "$FILE_LIST" | awk -F/ 'NF { print $1 }' | sort -u)
     TOP_LEVEL_COUNT=$(printf '%s\n' "$TOP_LEVELS" | sed '/^$/d' | wc -l)
@@ -78,7 +81,7 @@ if [[ "$VERIFY_MODE" == "artifact" ]]; then
     }
     trap cleanup EXIT
 
-    tar -xJf "$ARTIFACT_PATH" -C "$TMPDIR_NATIVE"
+    unzip -q -d "$TMPDIR_NATIVE" "$ARTIFACT_PATH"
     SCAN_ROOT="$TMPDIR_NATIVE"
 fi
 
@@ -100,13 +103,15 @@ PE_PASS=0
 PE_FAIL=0
 
 while IFS= read -r pe_path; do
-    pe_check_win98 "$pe_path"
+    # `|| true` so set -e doesn't kill us on rc=1 before we get to the
+    # case — PE_CHECK_RESULT carries the verdict; we still print and tally.
+    pe_check_win98 "$pe_path" || true
     case "$PE_CHECK_RESULT" in
         pass)
             (( PE_PASS++ )) || true
             ;;
         fail)
-            rel_path="${pe_path#$TMPDIR_NATIVE/}"
+            rel_path="${pe_path#"$SCAN_ROOT"/}"
             echo "  [WIN98-FAIL] $rel_path -- $PE_CHECK_FAIL_REASON"
             (( PE_FAIL++ )) || true
             ;;

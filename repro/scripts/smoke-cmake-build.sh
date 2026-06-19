@@ -47,7 +47,8 @@ check_pe_win98() {
     local exe="$1"
     local rel="${exe#$BUILD_DIR/}"
 
-    pe_check_win98 "$exe"
+    # `|| true` so set -e doesn't kill us on rc=1 before the case runs.
+    pe_check_win98 "$exe" || true
     case "$PE_CHECK_RESULT" in
         pass)
             local ver_tag=""

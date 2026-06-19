@@ -19,6 +19,9 @@ bash "$SCRIPT_DIR/cross-toolset-status.sh"
 status_section "native toolset report"
 bash "$SCRIPT_DIR/native-toolset-status.sh"
 
+status_section "extras toolset report"
+bash "$SCRIPT_DIR/extras-toolset-status.sh"
+
 status_section "smoke report"
 bash "$SCRIPT_DIR/smoke-tests-status.sh"
 

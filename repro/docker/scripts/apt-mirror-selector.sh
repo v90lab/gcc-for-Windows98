@@ -8,7 +8,7 @@
 set -euo pipefail # Strict mode
 
 opts="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
-mirrors="mirrors.aliyun.com mirrors.cloud.tencent.com mirrors.ustc.edu.cn mirrors.tuna.tsinghua.edu.cn archive.ubuntu.com"
+mirrors="dal.mirrors.clouvider.net archive.ubuntu.com"
 ok=""
 
 for host in $mirrors; do

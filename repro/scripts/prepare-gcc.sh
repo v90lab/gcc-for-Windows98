@@ -7,12 +7,15 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
-require_dir "$SRC_DIR/gcc/.git" "missing gcc sources; run fetch-sources.sh first"
+require_dir "$SRC_DIR/gcc" "missing gcc sources; run fetch-sources.sh first"
 skip_if_done prepare-gcc
 
 cd "$SRC_DIR/gcc"
-run_logged prepare-gcc.log git reset --hard HEAD
-run_logged prepare-gcc.log git clean -fd
+# Tarball-extracted sources have no .git/; nothing to reset.
+if [[ -d .git ]]; then
+  run_logged prepare-gcc.log git reset --hard HEAD
+  run_logged prepare-gcc.log git clean -fd
+fi
 
 # Apply versioned patch series for GCC.
 run_logged prepare-gcc.log "$ROOT_DIR/scripts/apply-patches.sh" gcc "11.1.0"
