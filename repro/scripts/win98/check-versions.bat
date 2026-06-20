@@ -18,7 +18,13 @@ REM Compatible with Win98 SE command.com:
 REM   - single-line `if exist file command` form only (no block if)
 REM   - bare `goto label` (no `goto :eof` / `:label` with colon)
 REM   - no setlocal / no 2>&1 / no `call :sub`
+REM
+REM NOTE: gdb.exe will emit two warnings on every run if HOME / TMP aren't
+REM set (Win98 SE defaults). Run setenv.bat (shipped alongside this file)
+REM first to silence them.
 REM ============================================================================
+
+if exist setenv.bat call setenv.bat
 
 echo *** Native compiler ***
 echo.

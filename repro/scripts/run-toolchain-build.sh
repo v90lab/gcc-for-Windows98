@@ -130,6 +130,7 @@ declare -a NATIVE_STEPS=(
   "verify-native-compiler-features|verify-native-compiler-features.sh|Verify native compiler features|builder"
   "verify-native-win98-capability|verifiers/verify-native-package.sh|Verify native toolset Win98 capability|builder"
   "install-win98-compat-native|install-win98-compat-native.sh|Mirror win98-compat shim into native toolset|builder"
+  "install-win98-helpers-native|install-win98-helpers-native.sh|Install setenv.bat + check-versions.bat into native toolset|builder"
   "package-native-toolset|package-native-toolset.sh|Package native toolset|builder"
   "write-native-toolchain-manifest-v2|write-toolchain-manifest.sh|Write native toolchain manifest|builder"
 )
@@ -146,6 +147,7 @@ declare -a EXTRAS_STEPS=(
   "build-native-muon|build-native-muon.sh|Build muon|builder"
   "build-bcrypt-shim|build-bcrypt-shim.sh|Build bcrypt.dll shim for gdb|builder"
   "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder"
+  "install-win98-helpers-extras|install-win98-helpers-extras.sh|Install setenv.bat + check-versions.bat into extras toolset|builder"
   "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder"
   "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder"
 )
