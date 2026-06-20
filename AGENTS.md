@@ -10,9 +10,9 @@ It produces **three** archive artifacts plus per-archive manifests and a Docker 
 
 | Artifact            | Path under `repro/out/package/`                | Host    | Target               |
 | ------------------- | ---------------------------------------------- | ------- | -------------------- |
-| Cross toolchain     | `gcc-win98-toolchain.tar.xz` + `.json`         | Linux   | `i686-w64-mingw32`   |
-| Native toolset      | `gcc-win98-native-toolset.zip` + `.json`       | Win98   | `i686-w64-mingw32`   |
-| Extras toolset      | `gcc-win98-extras.zip` + `.json`               | Win98   | (user tools)         |
+| Cross toolchain     | `gcc-win98-cross-toolchain.tar.xz` + `.json`         | Linux   | `i686-w64-mingw32`   |
+| Native toolset      | `gcc-win98-native-toolchain.zip` + `.json`       | Win98   | `i686-w64-mingw32`   |
+| Extras toolset      | `gcc-win98-native-toolchain-extras.zip` + `.json`               | Win98   | (user tools)         |
 | Consumer image      | `gcc-win98-consumer:latest`                    | —       | —                    |
 
 The two Win98-hosted archives ship as `.zip` (not `.tar.xz`) so 7zip 9.20 on Win98 SE can extract them in one pass without spilling a ~700 MB scratch tar. zip also has no hardlink/symlink concept, which sidesteps a FAT32 trap: tar archives hardlinks (e.g. `g++.exe → c++.exe`, `ld.exe → ld.bfd.exe`) as metadata-only entries, and FAT32 can't represent them — they materialize as 0-byte stubs and Win98 reports "Error in EXE file" at load time. The cross toolchain stays `.tar.xz` because it's only ever consumed inside the Linux consumer container, where xz is fast.
@@ -260,7 +260,7 @@ Heads-up for cross-environment debugging: running `objdump -p` from the **host**
 | [`repro/win98-compat/include/win98_compat.h`](repro/win98-compat/include/win98_compat.h) | Public header — system-header preload, win98_* forward decls, macro redirects (see §5.6 for the ordering rules) |
 | [`repro/win98-compat/src/win98_compat.c`](repro/win98-compat/src/win98_compat.c) | Implementations — one `GetProcAddress`-probe-and-fallback per shimmed symbol |
 | [`repro/patches/mingw-w64/master/0002-ftruncate64-skip-volume-walk-pre-win2k.patch`](repro/patches/mingw-w64/master/0002-ftruncate64-skip-volume-walk-pre-win2k.patch) | Example mingw-w64 CRT patch: gates `ftruncate64`'s `checkfreespace` volume walk on `_WIN32_WINNT >= 0x0500` so `FindFirstVolumeW` doesn't get statically imported into binaries that call `ftruncate` (it was tripping `make.exe`) |
-| [`repro/scripts/package-extras-toolset.sh`](repro/scripts/package-extras-toolset.sh) | Zips `out/extras-toolset/` → `out/package/gcc-win98-extras.zip` (stage dir under `out/package/` to avoid EXDEV) |
+| [`repro/scripts/package-extras-toolset.sh`](repro/scripts/package-extras-toolset.sh) | Zips `out/extras-toolset/` → `out/package/gcc-win98-native-toolchain-extras.zip` (stage dir under `out/package/` to avoid EXDEV) |
 | [`repro/scripts/verifiers/pe-win98-check.sh`](repro/scripts/verifiers/pe-win98-check.sh) | PE verifier — sourceable, used by every package-verify script. Honors `PE_CHECK_BUNDLED_DLLS` and `PE_CHECK_ALLOWLIST` env vars |
 | [`repro/data/win98se-api-allowlist.json`](repro/data/win98se-api-allowlist.json) | Win98 SE system DLL + per-DLL export-table snapshot driving the verifier's allowlist |
 | [`repro/scripts/verifiers/verify-extras-package.sh`](repro/scripts/verifiers/verify-extras-package.sh) | Extras-tarball verifier (required tools + PE check sweep); sets `PE_CHECK_BUNDLED_DLLS=bcrypt.dll` |

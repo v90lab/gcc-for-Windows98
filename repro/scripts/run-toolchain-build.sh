@@ -135,7 +135,7 @@ declare -a NATIVE_STEPS=(
   "write-native-toolchain-manifest-v2|write-toolchain-manifest.sh|Write native toolchain manifest|builder"
 )
 
-# EXTRAS_STEPS: Win98-hosted user tools packaged as gcc-win98-extras.zip.
+# EXTRAS_STEPS: Win98-hosted user tools packaged as gcc-win98-native-toolchain-extras.zip.
 # Ordered cheapest → heaviest so a build can fail fast on simpler tools.
 declare -a EXTRAS_STEPS=(
   "build-native-busybox|build-native-busybox.sh|Build busybox-w32|builder"

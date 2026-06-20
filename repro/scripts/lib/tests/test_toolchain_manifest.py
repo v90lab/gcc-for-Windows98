@@ -49,21 +49,21 @@ class ToolchainManifestTests(unittest.TestCase):
 
     def test_build_manifest_native_structure(self):
         manifest = build_manifest(
-            artifact_filename="gcc-win98-native-toolset.zip",
+            artifact_filename="gcc-win98-native-toolchain.zip",
             artifact_sha256="beadfeed",
             artifact_size=456,
             gcc_version="11.1.0",
             target="i686-w64-mingw32",
-            package_kind="native-toolset",
+            package_kind="native-toolchain",
             compiler_features={"threading_model": "posix", "pthread": "unverified", "std_thread": "unverified", "file_io": "unverified"},
         )
-        self.assertEqual(manifest["artifact"]["filename"], "gcc-win98-native-toolset.zip")
-        self.assertEqual(manifest["toolchain"]["package_kind"], "native-toolset")
+        self.assertEqual(manifest["artifact"]["filename"], "gcc-win98-native-toolchain.zip")
+        self.assertEqual(manifest["toolchain"]["package_kind"], "native-toolchain")
 
     def test_main_writes_output(self):
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
-            artifact = td_path / "gcc-win98-toolchain.tar.xz"
+            artifact = td_path / "gcc-win98-cross-toolchain.tar.xz"
             artifact.write_bytes(b"abc")
             features = td_path / "features.json"
             features.write_text(json.dumps({"threading_model": "posix", "pthread": "ok", "file_io": "ok"}), encoding="utf-8")

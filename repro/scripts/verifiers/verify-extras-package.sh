@@ -6,7 +6,7 @@ set -euo pipefail
 # ============================================================================
 # Two-mode (mirrors verify-native-package.sh):
 #   * directory mode — scans out/extras-toolset/ directly
-#   * artifact mode  — extracts gcc-win98-extras.zip to a tmpdir, scans that
+#   * artifact mode  — extracts gcc-win98-native-toolchain-extras.zip to a tmpdir, scans that
 #
 # Checks:
 #   1. Required tools are present (busybox.exe, sh.exe, make.exe,
@@ -18,7 +18,7 @@ set -euo pipefail
 REPRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$REPRO_ROOT/out/package"
-ARTIFACT_PATH="$PACKAGE_DIR/gcc-win98-extras.zip"
+ARTIFACT_PATH="$PACKAGE_DIR/gcc-win98-native-toolchain-extras.zip"
 EXTRAS_DIR="$REPRO_ROOT/out/extras-toolset"
 
 source "$SCRIPT_DIR/../lib/common.sh"

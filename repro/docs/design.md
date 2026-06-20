@@ -6,9 +6,9 @@ This directory contains a Docker-based reproducible build environment for
 `fsb4000/gcc-for-Windows98`. Its goals are:
 
 - Produce two toolchain artifacts that other projects can consume:
-  - **Cross toolchain** (`gcc-win98-toolchain.tar.xz`): a Linux-hosted
+  - **Cross toolchain** (`gcc-win98-cross-toolchain.tar.xz`): a Linux-hosted
     MinGW cross compiler targeting `i686-w64-mingw32`.
-  - **Native toolset** (`gcc-win98-native-toolset.zip`): a
+  - **Native toolset** (`gcc-win98-native-toolchain.zip`): a
     Windows-hosted compiler (built via Canadian Cross) that runs on and
     targets Windows 98-class machines.
 - Provide a **consumer Docker image** (`gcc-win98-consumer:latest`) with
@@ -177,7 +177,7 @@ Orchestrated by `run-toolchain-build.sh` inside the `toolchain-builder` containe
 | `build-cross-gcc-stage1.sh`  | Bootstrap GCC: `--without-headers --with-newlib --disable-threads`         |
 | `build-cross-pthread9x.sh`   | pthread9x (static + dynamic); installs headers, `libpthread.a`, `crtfix.o` |
 | `build-cross-gcc.sh`         | Final GCC: `--enable-languages=c,c++ --enable-threads=posix`               |
-| `package-cross-toolset.sh`   | Packages into `out/package/gcc-win98-toolchain.tar.xz`                     |
+| `package-cross-toolset.sh`   | Packages into `out/package/gcc-win98-cross-toolchain.tar.xz`                     |
 | `write-toolchain-manifest.sh`| Writes JSON manifest (SHA256, GCC version, thread model)                   |
 
 **Script naming convention**: Cross-toolchain build scripts are named `build-cross-*.sh`.
@@ -195,7 +195,7 @@ The resulting binaries run on Windows 98 and produce Windows 98 code.
 | `build-native-binutils.sh`  | Native-host binutils                                           |
 | `build-native-mingw-w64.sh` | Native-host mingw-w64 CRT                                      |
 | `build-native-pthread9x.sh` | Native-host pthread9x                                          |
-| `package-native-toolset.sh` | Packages into `out/package/gcc-win98-native-toolset.zip`       |
+| `package-native-toolset.sh` | Packages into `out/package/gcc-win98-native-toolchain.zip`       |
 
 **Notable Canadian Cross workarounds:**
 - `--disable-libstdcxx-pch` — avoids PCH incompatibilities.
@@ -333,8 +333,8 @@ Execution flow:
 
 | Artifact           | Path                                          | Description                              |
 |--------------------|-----------------------------------------------|------------------------------------------|
-| Cross toolchain    | `out/package/gcc-win98-toolchain.tar.xz`      | Linux-hosted MinGW cross compiler        |
-| Native toolset     | `out/package/gcc-win98-native-toolset.zip`    | Windows-hosted native compiler           |
+| Cross toolchain    | `out/package/gcc-win98-cross-toolchain.tar.xz`      | Linux-hosted MinGW cross compiler        |
+| Native toolset     | `out/package/gcc-win98-native-toolchain.zip`    | Windows-hosted native compiler           |
 | Toolchain manifest | `out/package/toolchain-manifest.json`         | SHA256, GCC version, thread model        |
 | Consumer image     | `gcc-win98-consumer:latest`                   | Docker image with both toolchains + Wine |
 | Build logs         | `logs/`                                       | Per-step log files with timestamps       |

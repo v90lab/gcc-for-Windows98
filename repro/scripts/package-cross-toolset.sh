@@ -11,9 +11,9 @@ require_step verify-cross-compiler-features "run verify-compiler-features.sh cro
 
 mkdir -p "$OUT_DIR/package"
 if [[ -d "$PREFIX" ]]; then
-  tar -C "$OUT_DIR" -caf "$OUT_DIR/package/gcc-win98-toolchain.tar.xz" "$(basename "$PREFIX")"
+  tar -C "$OUT_DIR" -caf "$OUT_DIR/package/gcc-win98-cross-toolchain.tar.xz" "$(basename "$PREFIX")"
   mark_done package
-  log "package created at $OUT_DIR/package/gcc-win98-toolchain.tar.xz"
+  log "package created at $OUT_DIR/package/gcc-win98-cross-toolchain.tar.xz"
 else
   die "nothing to package: $PREFIX does not exist"
 fi

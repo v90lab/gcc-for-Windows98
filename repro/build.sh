@@ -167,9 +167,9 @@ if [[ $BUILD_EXIT -ne 0 ]]; then
 fi
 
 # --- Verify artifacts exist ---------------------------------------------------
-CROSS_PKG="$SCRIPT_DIR/out/package/gcc-win98-toolchain.tar.xz"
-NATIVE_PKG="$SCRIPT_DIR/out/package/gcc-win98-native-toolset.zip"
-EXTRAS_PKG="$SCRIPT_DIR/out/package/gcc-win98-extras.zip"
+CROSS_PKG="$SCRIPT_DIR/out/package/gcc-win98-cross-toolchain.tar.xz"
+NATIVE_PKG="$SCRIPT_DIR/out/package/gcc-win98-native-toolchain.zip"
+EXTRAS_PKG="$SCRIPT_DIR/out/package/gcc-win98-native-toolchain-extras.zip"
 
 if [[ ! -f "$CROSS_PKG" ]]; then
   echo "[X] Cross toolchain package not found: $CROSS_PKG" >&2

@@ -48,15 +48,15 @@ WORKDIR /work
 # a glob that matches zero files is an error, so we always copy the
 # package directory and pick the extras archive at install time only if
 # it exists.
-COPY ./out/package/gcc-win98-toolchain.tar.xz /tmp/gcc-win98-toolchain.tar.xz
-COPY ./out/package/gcc-win98-native-toolset.zip /tmp/gcc-win98-native-toolset.zip
+COPY ./out/package/gcc-win98-cross-toolchain.tar.xz /tmp/gcc-win98-cross-toolchain.tar.xz
+COPY ./out/package/gcc-win98-native-toolchain.zip /tmp/gcc-win98-native-toolchain.zip
 COPY ./out/package/ /tmp/package/
 
 RUN mkdir -p /opt/cross-toolset /opt/native-toolset /opt/extras && \
-    ./install-toolchain-artifact.sh /tmp/gcc-win98-toolchain.tar.xz /opt/cross-toolset && \
-    ./install-toolchain-artifact.sh /tmp/gcc-win98-native-toolset.zip /opt/native-toolset && \
-    if [ -f /tmp/package/gcc-win98-extras.zip ]; then \
-        ./install-toolchain-artifact.sh /tmp/package/gcc-win98-extras.zip /opt/extras; \
+    ./install-toolchain-artifact.sh /tmp/gcc-win98-cross-toolchain.tar.xz /opt/cross-toolset && \
+    ./install-toolchain-artifact.sh /tmp/gcc-win98-native-toolchain.zip /opt/native-toolset && \
+    if [ -f /tmp/package/gcc-win98-native-toolchain-extras.zip ]; then \
+        ./install-toolchain-artifact.sh /tmp/package/gcc-win98-native-toolchain-extras.zip /opt/extras; \
     else \
         echo "[*] extras archive not present; /opt/extras will be empty"; \
     fi && \

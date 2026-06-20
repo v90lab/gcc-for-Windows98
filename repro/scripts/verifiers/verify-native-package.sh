@@ -4,7 +4,7 @@ set -euo pipefail
 REPRO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$REPRO_ROOT/out/package"
-ARTIFACT_PATH="$PACKAGE_DIR/gcc-win98-native-toolset.zip"
+ARTIFACT_PATH="$PACKAGE_DIR/gcc-win98-native-toolchain.zip"
 NATIVE_DIR="$REPRO_ROOT/out/native-toolset"
 
 source "$SCRIPT_DIR/pe-win98-check.sh"

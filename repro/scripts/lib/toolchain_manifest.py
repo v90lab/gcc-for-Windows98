@@ -49,10 +49,6 @@ def build_manifest(
             "threading": detected_threading,
         },
         "compiler_features": compiler_features,
-        "metadata": {
-            "project": "gcc-for-Windows98",
-            "homepage": "https://github.com/longhronshen/gcc-for-Windows98",
-        },
     }
 
 

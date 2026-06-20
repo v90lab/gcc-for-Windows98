@@ -6,7 +6,7 @@ set -euo pipefail
 # into the extras toolset
 # ============================================================================
 # Same payload as install-win98-helpers-native.sh, mirrored into the extras
-# toolset (gcc-win98-extras.zip). Shipped in both packages because:
+# toolset (gcc-win98-native-toolchain-extras.zip). Shipped in both packages because:
 #   * a user installing just the native compiler may invoke sh.exe / make.exe
 #     from extras later — they still want HOME set
 #   * a user installing just the extras zip still wants check-versions.bat

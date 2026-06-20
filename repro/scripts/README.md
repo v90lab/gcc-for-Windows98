@@ -148,7 +148,7 @@ Orchestrated by `run-toolchain-build.sh`:
 8. `prepare-pthread9x.sh` — Apply Win98 compatibility patches to pthread9x
 9. `build-cross-pthread9x.sh` — Build pthread9x threading library
 10. `build-cross-gcc.sh` — Full GCC (C/C++, pthread9x, libstdc++)
-11. `package-cross-toolset.sh` — Package as `out/package/gcc-win98-toolchain.tar.xz`
+11. `package-cross-toolset.sh` — Package as `out/package/gcc-win98-cross-toolchain.tar.xz`
 12. `write-toolchain-manifest.sh` — Write the cross-toolchain manifest JSON
 
 ### Phase 2: Native Toolset (Canadian Cross)
@@ -158,7 +158,7 @@ Orchestrated by `run-toolchain-build.sh`:
 14. `build-native-binutils.sh` — Native-host binutils via Canadian Cross
 15. `build-native-mingw-w64.sh` — Native-host mingw-w64 via Canadian Cross
 16. `build-native-pthread9x.sh` — Native-host pthread9x via Canadian Cross
-17. `package-native-toolset.sh` — Package as `out/package/gcc-win98-native-toolset.zip`
+17. `package-native-toolset.sh` — Package as `out/package/gcc-win98-native-toolchain.zip`
 18. `write-toolchain-manifest.sh` — Write the native-toolset manifest JSON
 
 ### Phase 3: Smoke Tests

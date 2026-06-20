@@ -56,9 +56,9 @@ cd repro
 
 - `repro/out/packages`
 
-  - `gcc-win98-native-toolset.zip` -- Native Windows 98 compiler
-  - `gcc-win98-toolchain.tar.xz` -- Linux cross compiler for Windows 98
-  - `gcc-win98-extras.zip` -- Extra build tools added by this fork (see above)
+  - `gcc-win98-native-toolchain.zip` -- Native Windows 98 compiler
+  - `gcc-win98-cross-toolchain.tar.xz` -- Linux cross compiler for Windows 98
+  - `gcc-win98-native-toolchain-extras.zip` -- Extra build tools added by this fork (see above)
 
 ## Additions, Changes and Fixes in [ahrbe1/gcc-for-Windows98](https://github.com/ahrbe1/gcc-for-Windows98)
 

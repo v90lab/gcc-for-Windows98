@@ -16,7 +16,7 @@ require_step verify-native-compiler-features "run verify-compiler-features.sh na
 REPO_ROOT="$ROOT_DIR"
 SOURCE_DIR="$REPO_ROOT/out/native-toolset"
 PACKAGE_DIR="$REPO_ROOT/out/package"
-PACKAGE_NAME="gcc-win98-native-toolset.zip"
+PACKAGE_NAME="gcc-win98-native-toolchain.zip"
 PACKAGE_PATH="$PACKAGE_DIR/$PACKAGE_NAME"
 
 # === Ensure libgcc.a and libgcc_s_dw2-1.dll are in target lib dir ===

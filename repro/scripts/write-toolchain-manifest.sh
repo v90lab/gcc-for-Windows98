@@ -41,22 +41,22 @@ write_manifest() {
 }
 
 write_manifest \
-  "gcc-win98-toolchain.tar.xz" \
-  "gcc-win98-toolchain.json" \
+  "gcc-win98-cross-toolchain.tar.xz" \
+  "gcc-win98-cross-toolchain.json" \
   "cross-toolchain" \
   "write-toolchain-manifest-v2" \
   "$COMPILER_FEATURES_DIR/cross.json"
 
 write_manifest \
-  "gcc-win98-native-toolset.zip" \
-  "gcc-win98-native-toolset.json" \
-  "native-toolset" \
+  "gcc-win98-native-toolchain.zip" \
+  "gcc-win98-native-toolchain.json" \
+  "native-toolchain" \
   "write-native-toolchain-manifest-v2" \
   "$COMPILER_FEATURES_DIR/native.json"
 
 write_extras_manifest() {
-  local artifact_path="$PACKAGE_DIR/gcc-win98-extras.zip"
-  local manifest_path="$PACKAGE_DIR/gcc-win98-extras.json"
+  local artifact_path="$PACKAGE_DIR/gcc-win98-native-toolchain-extras.zip"
+  local manifest_path="$PACKAGE_DIR/gcc-win98-native-toolchain-extras.json"
 
   if [[ ! -f "$artifact_path" ]]; then
     return 0
@@ -83,13 +83,13 @@ from pathlib import Path
 
 manifest = {
     "artifact": {
-        "filename": "gcc-win98-extras.zip",
+        "filename": "gcc-win98-native-toolchain-extras.zip",
         "sha256": sha256,
         "size": int(size),
     },
     "toolchain": {
         "target": target,
-        "package_kind": "extras-toolset",
+        "package_kind": "native-toolchain-extras",
         "crt": "msvcrt",
     },
     "tools": {
@@ -100,10 +100,6 @@ manifest = {
         "patch":       {"version": patch_v},
         "muon":        {"version": muon_v},
         "gdb":         {"version": f"from binutils {binutils_v}"},
-    },
-    "metadata": {
-        "project": "gcc-for-Windows98",
-        "homepage": "https://github.com/longhronshen/gcc-for-Windows98",
     },
 }
 
@@ -119,7 +115,7 @@ PY
 
 write_extras_manifest
 
-if [[ ! -f "$PACKAGE_DIR/gcc-win98-toolchain.tar.xz" && ! -f "$PACKAGE_DIR/gcc-win98-native-toolset.zip" ]]; then
+if [[ ! -f "$PACKAGE_DIR/gcc-win98-cross-toolchain.tar.xz" && ! -f "$PACKAGE_DIR/gcc-win98-native-toolchain.zip" ]]; then
   echo "Error: No packaged toolchain artifacts found in $PACKAGE_DIR"
   exit 1
 fi
