@@ -90,6 +90,19 @@ cd repro
 - Added a tiny `bcrypt.dll` shim needed by `gdb.exe`. `libstdc++` 11's `std::random_device` imports
   `bcrypt!BCryptGenRandom`, which Win98 doesn't have; the shim redirects it to use `rand()` seeded
   from `GetTickCount` (this is not cryptographiclly secure, but gdb only uses it as a default seed).
+- Added a `win98-compat` compile-time API shim layer for *functions* that are missing on Win98 but
+  whose host DLL still exists (e.g. `kernel32!GetFinalPathNameByHandleA`, `ws2_32!getaddrinfo`,
+  `advapi32!SystemFunction036`, `msvcrt!qsort_s`). The shim is a static library + header that
+  installs into the cross-toolchain sysroot, so it ships in the cross tarball — downstream
+  cross-builds can pick it up with `-include win98_compat.h` / `-lwin98compat` directly. Each
+  shimmed function probes the real export via `GetProcAddress` at runtime (full behavior on NT)
+  and falls back to a behavior-preserving stub on Win9x.
+- Patched mingw-w64's CRT so `ftruncate64` skips its free-space volume-walk path when
+  `_WIN32_WINNT < 0x0500` — it was dragging `FindFirstVolumeW` (Win2K+) into `make.exe`.
+- Disabled busybox-w32's `drop` / `cdrop` / `pdrop` applets; they need `CheckTokenMembership`,
+  which Win98's `ADVAPI32.DLL` doesn't export.
+- Added `-D_USE_32BIT_TIME_T` to the `diff` and `busybox` builds so `gmtime` etc. resolve to
+  msvcrt's `_gmtime32` instead of the `_gmtime64` family (which Win98's `MSVCRT.DLL` doesn't have).
 
 ---
 
