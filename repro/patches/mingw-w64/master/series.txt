@@ -1,1 +1,2 @@
 0001-ucrt-default-to-msvcrt.patch
+0002-ftruncate64-skip-volume-walk-pre-win2k.patch

@@ -36,6 +36,10 @@ cd "$BUILD_DIR"
 
 log "configuring GNU diffutils for $TARGET"
 # CPPFLAGS notes:
+#   -D_USE_32BIT_TIME_T — pin mingw-w64's time_t to 32 bits so gmtime() etc.
+#     resolve to msvcrt's _gmtime32 instead of _gmtime64 (Win98's msvcrt.dll
+#     only exports the 32-bit variants). Without this, diff.exe fails to
+#     load on Win98 with a missing __gmtime64 import.
 #   -DSA_RESTART=0 — diffutils's bundled gnulib uses the POSIX sigaction flag
 #     SA_RESTART in lib/cmpbuf.c, but doesn't activate gnulib's signal-module
 #     replacement header that would normally #define it to 0 on platforms
@@ -53,8 +57,8 @@ run_logged build-native-diffutils.log "$DIFFUTILS_SRC/configure" \
     --disable-nls \
     --disable-dependency-tracking \
     --disable-gcc-warnings \
-    CPPFLAGS="-DSA_RESTART=0 -DSIGHUP=1 -DSIGPIPE=13 -DSIGSTOP=17 $WIN98_TARGET_CPPFLAGS" \
-    LDFLAGS="-static-libgcc $WIN98_TARGET_LDFLAGS"
+    CPPFLAGS="-D_USE_32BIT_TIME_T -DSA_RESTART=0 -DSIGHUP=1 -DSIGPIPE=13 -DSIGSTOP=17 $WIN98_TARGET_CPPFLAGS $WIN98_COMPAT_CPPFLAGS" \
+    LDFLAGS="-static-libgcc $WIN98_TARGET_LDFLAGS $WIN98_COMPAT_LDFLAGS"
 
 # === STEP 3: Build & install ===
 log "building GNU diffutils"

@@ -37,6 +37,12 @@ require_file "$MINGW_DEPS_DIR/lib/libgmp.a" "Missing $MINGW_DEPS_DIR/lib/libgmp.
 
 export PATH="$CROSS_BIN_DIR:$PATH"
 
+# Win98 source-level patching of the gnulib stat-w32.c bump and the
+# gdb/gdbserver GetSystemWow64DirectoryA call sites is no longer needed —
+# the Win98 compat shim (libwin98compat.a, inherited via WIN98_COMPAT_*
+# flags below) macro-redirects those APIs at the call site. See
+# repro/win98-compat/ for the shim source.
+
 # === STEP 2: Configure (out-of-tree, top-level binutils-gdb configure) ===
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -69,8 +75,8 @@ run_logged build-native-gdb.log "$GDB_SRC/configure" \
     --enable-tui=no \
     --without-curses \
     --without-readline \
-    CPPFLAGS="$WIN98_TARGET_CPPFLAGS" \
-    LDFLAGS="-static-libgcc -static-libstdc++ -Wl,--allow-multiple-definition $WIN98_TARGET_LDFLAGS"
+    CPPFLAGS="$WIN98_TARGET_CPPFLAGS $WIN98_COMPAT_CPPFLAGS" \
+    LDFLAGS="-static-libgcc -static-libstdc++ -Wl,--allow-multiple-definition $WIN98_TARGET_LDFLAGS $WIN98_COMPAT_LDFLAGS"
 
 # === STEP 3: Build & install ===
 log "building gdb"

@@ -20,6 +20,17 @@ mkdir -p "$REPO_ROOT/logs"
 require_dir "$SRC_DIR" "Missing binutils sources at $SRC_DIR"
 require_dir "$CROSS_TOOLCHAIN_DIR/bin" "Cross-toolchain not found at $CROSS_TOOLCHAIN_DIR"
 
+# Note: the gnulib stat-w32.c _WIN32_WINNT bump and gdb/gdbserver
+# GetSystemWow64DirectoryA call sites used to be inline-python-patched
+# here. The Win98 compat shim (libwin98compat.a, force-included via
+# WIN98_COMPAT_CPPFLAGS) now subsumes both:
+#   - GetFinalPathNameByHandleA (the symbol gnulib's bump was chasing) is
+#     macro-redirected to win98_GetFinalPathNameByHandleA which probes via
+#     GetProcAddress and stubs out cleanly on Win9x.
+#   - GetSystemWow64DirectoryA likewise redirects to a probe-and-fallback
+#     wrapper at every call site.
+# See repro/win98-compat/ for the shim source.
+
 # === STEP 2: Ensure we use the new cross-toolchain ===
 export PATH="$CROSS_TOOLCHAIN_DIR/bin:$PATH"
 
@@ -37,12 +48,12 @@ cd "$BUILD_DIR"
 # === STEP 4: Configure binutils ===
 # Inject WIN98_TARGET_{CPPFLAGS,LDFLAGS} via env so configure propagates them
 # to every host-binary link (--host=i686-w64-mingw32 means host = Win98).
-export CPPFLAGS="${CPPFLAGS:-} $WIN98_TARGET_CPPFLAGS"
+export CPPFLAGS="${CPPFLAGS:-} $WIN98_TARGET_CPPFLAGS $WIN98_COMPAT_CPPFLAGS"
 # -static-libgcc / -static-libstdc++ matches the project's static-linking
 # design (see top-level README). Almost all binutils binaries are plain C so
 # these flags are a no-op for them; the one that needs them is gdbserver,
 # which otherwise picks up libgcc_s_dw2-1.dll and is unloadable on Win98.
-export LDFLAGS="${LDFLAGS:-} -static-libgcc -static-libstdc++ $WIN98_TARGET_LDFLAGS"
+export LDFLAGS="${LDFLAGS:-} -static-libgcc -static-libstdc++ $WIN98_TARGET_LDFLAGS $WIN98_COMPAT_LDFLAGS"
 
 log "configuring native-host binutils"
 run_logged configure-native-host-binutils.log "$SRC_DIR/configure" \

@@ -1,0 +1,101 @@
+From: gcc-for-Windows98 build pipeline
+Subject: [PATCH] skip NT security stubs on Win98 (_WIN98_PORT)
+
+busybox-w32 calls a handful of advapi32 NT-security APIs that exist as
+exports on Win98 SE's ADVAPI32.DLL but are stubs that always return
+failure on the Win9x kernel. The static PE imports bind cleanly at load
+time but a Win98-aware verifier rightly rejects them — we shouldn't ship
+binaries that depend on functions the platform can't honor.
+
+Three call-site clusters in win32/mingw.c, each its own self-contained
+function:
+
+  * file_owner()       — uses OpenProcessToken / GetTokenInformation /
+                         DuplicateToken / GetSecurityInfo / EqualSid /
+                         AccessCheck for security-aware UID lookup on
+                         file ownership (ENABLE_FEATURE_EXTRA_FILE_DATA).
+  * gethomedir()       — uses OpenProcessToken + GetUserProfileDirectoryA
+                         (the latter via INIT_PROC_ADDR) for $HOME lookup.
+  * elevation_state()  — uses OpenProcessToken / GetTokenInformation
+                         (TokenElevation) for the admin-detection probe
+                         consumed by getuid() and the suw32 applet.
+
+The original code already handles call failure gracefully (returns
+DEFAULT_UID / empty buffer / 0), so the Win98 path simply short-circuits
+to those defaults at the top of each function. Defining -D_WIN98_PORT
+during compilation switches in those short-circuits; without it the
+upstream code is preserved verbatim, so this patch is a no-op for the
+non-Win98 mingw-w64 path.
+
+This keeps the busybox applet surface intact (id / whoami / ls -l /
+stat / su all keep working with their "anonymous, non-admin, default
+home" fallbacks) while preventing the linker from pulling stub-only
+NT-security imports into the PE.
+
+--- a/win32/mingw.c
++++ b/win32/mingw.c
+@@ -564,6 +564,14 @@
+ #if ENABLE_FEATURE_EXTRA_FILE_DATA
+ static uid_t file_owner(HANDLE fh, struct mingw_stat *buf)
+ {
++#ifdef _WIN98_PORT
++	/* Win9x advapi32 exports NT security APIs as stubs that bind but
++	 * always fail at runtime (OpenProcessToken / GetTokenInformation /
++	 * GetSecurityInfo / EqualSid / AccessCheck / DuplicateToken).
++	 * Single-user system: every file "owned" by the only user. */
++	(void)fh; (void)buf;
++	return DEFAULT_UID;
++#else
+ 	PSID pSidOwner;
+ 	PACL pDACL;
+ 	PSECURITY_DESCRIPTOR pSD;
+@@ -646,6 +654,7 @@
+ 	}
+ 	LocalFree(pSD);
+ 	return uid;
++#endif /* _WIN98_PORT */
+ }
+ #endif
+
+@@ -1208,6 +1217,13 @@
+
+ static char *gethomedir(void)
+ {
++#ifdef _WIN98_PORT
++	/* Win9x has no NT user-profile directory. Return an empty static
++	 * buffer (same observable behavior as the NT path failing). */
++	static char *empty_buf = NULL;
++	if (!empty_buf) empty_buf = xzalloc(PATH_MAX);
++	return empty_buf;
++#else
+ 	static char *buf = NULL;
+ 	DECLARE_PROC_ADDR(BOOL, GetUserProfileDirectoryA, HANDLE, LPSTR, LPDWORD);
+
+@@ -1225,6 +1241,7 @@
+ 		}
+ 	}
+ 	return buf;
++#endif /* _WIN98_PORT */
+ }
+
+ #define NAME_LEN 100
+@@ -1263,6 +1280,11 @@
+ int
+ elevation_state(void)
+ {
++#ifdef _WIN98_PORT
++	/* Win9x has no NT process tokens or group memberships: every process
++	 * is the (sole) user. Not elevated, not admin. */
++	return 0;
++#else
+ 	int elevated = FALSE;
+ 	int enabled = TRUE;
+ 	HANDLE h;
+@@ -1292,6 +1314,7 @@
+ #endif
+
+ 	return elevated | (enabled << 1);
++#endif /* _WIN98_PORT */
+ }
+
+ int getuid(void)

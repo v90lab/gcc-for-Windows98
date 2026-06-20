@@ -1,0 +1,21 @@
+diff --git a/mingw-w64-crt/stdio/ftruncate64.c b/mingw-w64-crt/stdio/ftruncate64.c
+--- a/mingw-w64-crt/stdio/ftruncate64.c
++++ b/mingw-w64-crt/stdio/ftruncate64.c
+@@ -129,6 +129,17 @@ checkfreespace (const HANDLE f, const ULONGLONG requiredspace)
+   BY_HANDLE_FILE_INFORMATION fileinfo;
+   HANDLE vol;
+
++  /* Win98 port: skip the pre-truncate disk-space sanity check unconditionally.
++   * The check below walks all mounted volumes via FindFirstVolumeW /
++   * FindNextVolumeW / FindVolumeClose — all three are Win2K+ exports, and
++   * mingw-w64's default build for the cross CRT compiles this in regardless
++   * of the consumer's _WIN32_WINNT, dragging the unresolved imports into
++   * every downstream PE. Win98's loader rejects the whole binary.
++   * SetEndOfFile() still returns ERROR_DISK_FULL when the disk is actually
++   * full, so user-facing semantics survive — we just lose the early-warning. */
++  (void) f; (void) requiredspace;
++  return 0;
++
+   /* Get current size */
+   check = GetFileSizeEx (f, &currentsize);
+   if (!check)

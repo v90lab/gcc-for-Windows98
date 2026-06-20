@@ -37,12 +37,19 @@ require_executable meson "meson not installed in builder (apt install meson)"
 require_executable ninja "ninja not installed in builder (apt install ninja-build)"
 
 # === STEP 1b: Patch muon for Win98 target ===
-# The MSYS/mintty pipe-detection block in fs_is_a_tty_from_fd uses
-# FILE_NAME_INFO and GetFileInformationByHandleEx, which mingw-w64 only
+# filesystem.c — the MSYS/mintty pipe-detection block in fs_is_a_tty_from_fd
+# uses FILE_NAME_INFO and GetFileInformationByHandleEx, which mingw-w64 only
 # exposes when _WIN32_WINNT >= 0x0600 (Vista+). Our WIN98_TARGET_CPPFLAGS
 # sets _WIN32_WINNT=0x0400 so the headers hide them. Gate the block on
 # _WIN32_WINNT >= 0x0600 — on Win98 there's no MSYS/Cygwin pty to detect
-# anyway, and the function falls through to the GetConsoleMode check.
+# anyway, and the function falls through to GetConsoleMode for cmd.exe-style
+# ttys.
+#
+# Note: os.c (os_ncpus / GetLogicalProcessorInformation) used to be patched
+# here too. The Win98 compat shim (libwin98compat.a, force-included via
+# WIN98_COMPAT_CPPFLAGS) now macro-redirects GetLogicalProcessorInformation
+# to a wrapper that GetProcAddress-probes and falls back to GetSystemInfo
+# on Win9x. See repro/win98-compat/.
 log "patching muon filesystem.c for Win98 target"
 python3 - "$MUON_SRC/src/platform/windows/filesystem.c" <<'PATCH_EOF'
 import sys
@@ -100,9 +107,9 @@ _meson_array() {
     printf '%s\n' "$out"
 }
 # shellcheck disable=SC2086 # intentional word-splitting on the flag strings
-CPPFLAGS_ARRAY=$(_meson_array $WIN98_TARGET_CPPFLAGS)
+CPPFLAGS_ARRAY=$(_meson_array $WIN98_TARGET_CPPFLAGS $WIN98_COMPAT_CPPFLAGS)
 # shellcheck disable=SC2086
-LDFLAGS_ARRAY=$(_meson_array $WIN98_TARGET_LDFLAGS)
+LDFLAGS_ARRAY=$(_meson_array $WIN98_TARGET_LDFLAGS $WIN98_COMPAT_LDFLAGS)
 
 cat > "$CROSS_FILE" <<EOF
 [binaries]

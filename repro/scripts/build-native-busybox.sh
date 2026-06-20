@@ -32,6 +32,17 @@ require_executable "$CROSS_BIN_DIR/${TARGET}-gcc" "Missing $TARGET-gcc in $CROSS
 # === STEP 2: Put cross compiler on PATH ===
 export PATH="$CROSS_BIN_DIR:$PATH"
 
+# === STEP 2b: Apply busybox-w32 patches ===
+# Idempotent: apply-patches.sh tries `git apply --check` first; on a
+# rebuild against an already-patched tree the check fails and it falls
+# back to `patch -p1 -N` which silently skips already-applied hunks.
+# We intentionally DON'T git-reset the tree first — busybox stores
+# generated artifacts (.config, .o files, build/) in-tree, and a hard
+# reset would force a from-scratch rebuild every time the sentinel is
+# cleared.
+log "applying busybox-w32 patches"
+"$REPO_ROOT/scripts/apply-patches.sh" busybox-w32 "${BUSYBOX_W32_COMPONENT_VERSION:-master}"
+
 # === STEP 3: Install the pinned config and reconcile ===
 log "installing pinned busybox-w32 config"
 cp "$CONFIG_SRC" "$BUSYBOX_SRC/.config"
@@ -47,11 +58,21 @@ printf '\n%.0s' {1..2000} | run_logged build-native-busybox.log \
 # === STEP 4: Build ===
 # Pass Win98-host flags via EXTRA_CFLAGS/EXTRA_LDFLAGS (Kbuild appends these
 # to its own CFLAGS/LDFLAGS, so they don't clobber busybox's settings).
+#
+# -D_USE_32BIT_TIME_T pins mingw-w64 time_t to 32 bits so gmtime/etc resolve
+# to msvcrt's _gmtime32 instead of _gmtime64 (Win98's msvcrt only exports
+# the 32-bit variants). Same fix as diffutils. WIN98_COMPAT_* layers in the
+# Win98 API shim (libwin98compat.a) for any remaining missing imports.
+#
+# -D_WIN98_PORT activates patch 0002 (skip-nt-security-stubs-on-win98):
+# short-circuits the three win32/mingw.c functions that call NT-only
+# security APIs (file_owner / gethomedir / elevation_state) so their
+# advapi32 stub-only imports don't get statically linked into the PE.
 log "building busybox-w32 (target=$TARGET)"
 run_logged build-native-busybox.log \
     make -j"$JOBS" CROSS_COMPILE="${TARGET}-" \
-        EXTRA_CFLAGS="$WIN98_TARGET_CPPFLAGS" \
-        EXTRA_LDFLAGS="$WIN98_TARGET_LDFLAGS"
+        EXTRA_CFLAGS="-D_USE_32BIT_TIME_T -D_WIN98_PORT $WIN98_TARGET_CPPFLAGS $WIN98_COMPAT_CPPFLAGS" \
+        EXTRA_LDFLAGS="$WIN98_TARGET_LDFLAGS $WIN98_COMPAT_LDFLAGS"
 
 require_file "$BUSYBOX_SRC/busybox.exe" "busybox-w32 build produced no busybox.exe"
 

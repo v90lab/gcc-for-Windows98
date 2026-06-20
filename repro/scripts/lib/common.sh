@@ -66,6 +66,42 @@ MATRIX="${MATRIX:-0}"
 WIN98_TARGET_CPPFLAGS="-D_WIN32_WINNT=0x0400 -DWINVER=0x0400"
 WIN98_TARGET_LDFLAGS="-Wl,--disable-dynamicbase -Wl,--disable-nxcompat -Wl,--major-subsystem-version=4"
 
+# --- Win98 compatibility shim flags -----------------------------------------
+# The shim works by IAT interception: libwin98compat.a defines __imp__FOO@N
+# slots for the shimmed APIs (GetFinalPathNameByHandleA, getaddrinfo,
+# qsort_s, ...) pre-pointing at win98_FOO wrappers. With -lwin98compat in
+# the link line ahead of the implicit -lkernel32 / -lws2_32 / -ladvapi32 /
+# -lmsvcrt, the linker resolves the consumer's `call *_imp__FOO@N` against
+# us — no import descriptor for FOO from the real DLL is emitted, and the
+# wrapper handles the call (real API via GetProcAddress on NT hosts,
+# behavior-preserving fallback on Win9x).
+#
+# CPPFLAGS is intentionally empty: no -include header force-load (the
+# previous design did this and ran into windows.h vs binutils-BFD/libiberty
+# namespace collisions). Consumers only need to LINK the library.
+#
+# --whole-archive is load-bearing here: autotools puts user LDFLAGS BEFORE
+# the object files on the link line, so a plain `-lwin98compat` is scanned
+# while no symbol is undefined yet — GNU ld pulls nothing from the archive
+# and moves on. By the time the consumer's .o files introduce references
+# to _imp__getaddrinfo@16 / _imp__freeaddrinfo@4 / ..., the later
+# -lws2_32 / -lkernel32 short import libraries resolve them first and emit
+# import descriptors pointing at the real (Win98-missing) DLL exports.
+# --whole-archive forces every member of libwin98compat.a into the link
+# at the point of -lwin98compat, defining all __imp__* slots up front so
+# the system import libraries never get a chance.
+#
+# The library lives in the cross-toolchain sysroot
+# (out/toolchain/i686-w64-mingw32/lib) so the cross gcc finds it on its
+# default -L search paths. win98_compat.h still installs into the sysroot
+# include dir for downstream code that wants to call win98_* wrappers
+# explicitly; it's just no longer force-included.
+#
+# Inherit alongside WIN98_TARGET_* from any build-native-*.sh whose binary
+# is destined for Win98.
+WIN98_COMPAT_CPPFLAGS=""
+WIN98_COMPAT_LDFLAGS="-Wl,--whole-archive -lwin98compat -Wl,--no-whole-archive"
+
 # Status sentinel scope prevents false resume/skip across different build
 # configurations (e.g., matrix/target changes).
 STATUS_SCOPE="${STATUS_SCOPE:-${TARGET}__m${MATRIX}}"

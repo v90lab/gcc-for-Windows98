@@ -115,6 +115,7 @@ declare -a CROSS_STEPS=(
   "build-pthread9x|build-cross-pthread9x.sh|Build pthread9x|builder"
   "build-gcc|build-cross-gcc.sh|Build GCC final|builder"
   "verify-cross-compiler-features|verify-cross-compiler-features.sh|Verify cross compiler features|builder"
+  "build-win98-compat|build-win98-compat.sh|Build Win98 API compat shim (libwin98compat.a)|builder"
   "package|package-cross-toolset.sh|Package cross toolchain|builder"
   "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder"
 )

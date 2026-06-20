@@ -50,8 +50,8 @@ run_logged build-native-ctags.log "$CTAGS_SRC/configure" \
     --disable-iconv \
     --enable-static \
     WINDRES="${TARGET}-windres" \
-    CPPFLAGS="$WIN98_TARGET_CPPFLAGS" \
-    LDFLAGS="-static-libgcc $WIN98_TARGET_LDFLAGS"
+    CPPFLAGS="$WIN98_TARGET_CPPFLAGS $WIN98_COMPAT_CPPFLAGS" \
+    LDFLAGS="-static-libgcc $WIN98_TARGET_LDFLAGS $WIN98_COMPAT_LDFLAGS"
 
 # === STEP 4: Build & install ===
 log "building universal-ctags"

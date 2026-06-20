@@ -110,8 +110,8 @@ run_logged build-native-patch.log "$PATCH_SRC/configure" \
     --disable-nls \
     --disable-dependency-tracking \
     --disable-gcc-warnings \
-    CPPFLAGS="-I$STUBS_DIR -include $STUBS_DIR/compat-mingw.h $WIN98_TARGET_CPPFLAGS" \
-    LDFLAGS="-static-libgcc $WIN98_TARGET_LDFLAGS"
+    CPPFLAGS="-I$STUBS_DIR -include $STUBS_DIR/compat-mingw.h $WIN98_TARGET_CPPFLAGS $WIN98_COMPAT_CPPFLAGS" \
+    LDFLAGS="-static-libgcc $WIN98_TARGET_LDFLAGS $WIN98_COMPAT_LDFLAGS"
 
 # === STEP 3: Build & install ===
 log "building GNU patch"

@@ -80,6 +80,12 @@ apply_component() {
         pthread9x)
             source_dir="${SRC_DIR}/pthread9x"
             ;;
+        busybox-w32)
+            source_dir="${SRC_DIR}/busybox-w32"
+            ;;
+        make)
+            source_dir="${SRC_DIR}/make"
+            ;;
         *)
             log "ERROR: Unknown component: $component"
             return 1

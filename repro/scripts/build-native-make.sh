@@ -32,6 +32,16 @@ require_executable "$CROSS_BIN_DIR/${TARGET}-gcc" "Missing $TARGET-gcc in $CROSS
 
 export PATH="$CROSS_BIN_DIR:$PATH"
 
+# === STEP 1b: Apply Win98 source patches ===
+# 0001-skip-nt-security-descriptor-on-win98.patch drops the
+# InitializeSecurityDescriptor call in src/w32/subproc/sub_proc.c, which is
+# a stub-only export on Win98 SE's advapi32.dll (binds but always fails).
+# Idempotent via apply-patches.sh's `patch -p1 -N` fallback (make is a
+# tarball extract, not a git tree — git apply --check fails and we fall
+# through to patch -N which silently skips already-applied hunks).
+log "applying GNU make patches"
+"$REPO_ROOT/scripts/apply-patches.sh" make "${MAKE_COMPONENT_VERSION:-4.4.1}"
+
 # === STEP 2: Configure (out-of-tree) ===
 require_file "$MAKE_SRC/configure" "Missing pre-built configure at $MAKE_SRC/configure (release tarball should ship one)"
 
@@ -40,6 +50,9 @@ mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 log "configuring GNU make for $TARGET"
+# -D_WIN98_PORT is consumed by the Win98 patch above: gates the
+# InitializeSecurityDescriptor call out and substitutes NULL for the
+# inheritable-pipe lpSecurityDescriptor (Win9x ignores SDs anyway).
 run_logged build-native-make.log "$MAKE_SRC/configure" \
     --build=x86_64-pc-linux-gnu \
     --host="$TARGET" \
@@ -47,8 +60,8 @@ run_logged build-native-make.log "$MAKE_SRC/configure" \
     --without-guile \
     --disable-nls \
     --disable-dependency-tracking \
-    CPPFLAGS="$WIN98_TARGET_CPPFLAGS" \
-    LDFLAGS="-static-libgcc $WIN98_TARGET_LDFLAGS"
+    CPPFLAGS="-D_WIN98_PORT $WIN98_TARGET_CPPFLAGS $WIN98_COMPAT_CPPFLAGS" \
+    LDFLAGS="-static-libgcc $WIN98_TARGET_LDFLAGS $WIN98_COMPAT_LDFLAGS"
 
 # === STEP 3: Build & install ===
 log "building GNU make"

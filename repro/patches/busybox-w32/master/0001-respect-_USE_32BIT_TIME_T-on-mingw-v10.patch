@@ -1,0 +1,47 @@
+From: gcc-for-Windows98 build pipeline
+Subject: [PATCH] honor _USE_32BIT_TIME_T on mingw-w64 v10+
+
+busybox-w32 unconditionally redirects the time API to the _*64 variants
+on 32-bit Windows when built against mingw-w64 v10 or newer — first via
+a macro block in include/mingw.h (time_t / ctime / time / gmtime /
+mktime / timespec) and again inside mingw_localtime() in win32/mingw.c
+(localtime). The _ctime64 / _time64 / _gmtime64 / _mktime64 /
+_localtime64 family is exported by NT-class msvcrt (Vista+ KBs, Win7+
+default) but is entirely absent from Win98's MSVCRT.DLL — the resulting
+busybox.exe fails the Win98 PE loader.
+
+mingw-w64 already exposes `_USE_32BIT_TIME_T` as the standard knob for
+pinning time_t to 32 bits and routing the time API to `_*32`. We pass
+`-D_USE_32BIT_TIME_T` from the build script. This patch teaches both
+override sites to step aside when that knob is set, so the mingw-w64
+time.h machinery (which resolves `ctime`/`localtime`/etc. to the `_*32`
+variants when the knob is defined) takes over.
+
+Year 2038: 32-bit time_t saturates at 2038-01-19. For a Win98 port that
+ceiling is far past the platform's own end-of-relevance and the rest of
+the Win98 toolset already pins 32-bit time wherever it touches msvcrt.
+
+diff --git a/include/mingw.h b/include/mingw.h
+--- a/include/mingw.h
++++ b/include/mingw.h
+@@ -4,7 +4,7 @@
+ #define IMPL(name,ret,retval,...) static inline ret name(__VA_ARGS__) { return retval; }
+
+ /* Use 64-bit time on 32-bit platforms. */
+-#if !defined(_WIN64) && __MINGW64_VERSION_MAJOR >= 10
++#if !defined(_WIN64) && __MINGW64_VERSION_MAJOR >= 10 && !defined(_USE_32BIT_TIME_T)
+ # define time_t __time64_t
+ # define ctime(t) _ctime64(t)
+ // localtime is handled in mingw_localtime()
+diff --git a/win32/mingw.c b/win32/mingw.c
+--- a/win32/mingw.c
++++ b/win32/mingw.c
+@@ -1140,7 +1140,7 @@ struct tm * FAST_FUNC gmtime_r(const time_t *timep, struct tm *result)
+ }
+
+ #undef localtime
+-#if !defined(_WIN64) && __MINGW64_VERSION_MAJOR >= 10
++#if !defined(_WIN64) && __MINGW64_VERSION_MAJOR >= 10 && !defined(_USE_32BIT_TIME_T)
+ # define localtime(t) _localtime64(t)
+ #endif
+ struct tm * FAST_FUNC mingw_localtime(const time_t *timep)

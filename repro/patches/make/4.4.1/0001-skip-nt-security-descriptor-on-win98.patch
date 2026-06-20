@@ -1,0 +1,57 @@
+From: gcc-for-Windows98 build pipeline
+Subject: [PATCH] skip NT security descriptor in process_init() on Win98
+
+GNU make 4.4.1's Windows pipe-setup (sub_proc.c::process_init) builds a
+SECURITY_ATTRIBUTES struct with an empty-DACL SECURITY_DESCRIPTOR so the
+inheritable stdin/stdout/stderr pipes it CreatePipe()'s grant
+nonrestricted access — necessary on NT, where passing NULL would attach
+the calling process's default security descriptor (restricted).
+
+InitializeSecurityDescriptor is exported by Win98 SE's ADVAPI32.DLL but
+it's a stub: it always sets the LastError and returns FALSE on the Win9x
+kernel. The static PE import binds cleanly, the call fails at runtime,
+and process_init() bails before any pipe is created — make then fails to
+launch any subprocess (the gating condition is "make can spawn any
+recipe at all"). The PE verifier's behavioral denylist rejects the
+import too.
+
+On Win9x there's no security model at all: lpSecurityDescriptor is
+ignored by CreatePipe / CreateProcess / every other inheritable-handle
+producer. So we drop the InitializeSecurityDescriptor call AND pass NULL
+for lpSecurityDescriptor on Win98 — the NT-only concern from the
+upstream comment (default-SD attached on NULL) literally doesn't apply.
+
+Activated by -D_WIN98_PORT (matches the gating convention in the
+busybox-w32 patch series). Without that define the upstream code path
+is preserved verbatim.
+
+--- a/src/w32/subproc/sub_proc.c
++++ b/src/w32/subproc/sub_proc.c
+@@ -401,15 +401,27 @@
+            Instead we use a security descriptor with no DACL.  This
+            allows nonrestricted access to the associated objects. */
+
++#ifndef _WIN98_PORT
+         if (!InitializeSecurityDescriptor((PSECURITY_DESCRIPTOR)(&sd),
+                                           SECURITY_DESCRIPTOR_REVISION)) {
+                 pproc->last_err = GetLastError();
+                 pproc->lerrno = E_SCALL;
+                 return((HANDLE)pproc);
+         }
++#endif
+
+         inherit.nLength = sizeof(inherit);
++#ifdef _WIN98_PORT
++        /* Win9x ignores lpSecurityDescriptor (no security model). The NT
++         * comment above does not apply: there is no "default security
++         * descriptor of the calling process" on Win98 — NULL is fine.
++         * Avoids a static import of advapi32!InitializeSecurityDescriptor,
++         * which is a stub-only export on Win98 SE. */
++        (void)sd;
++        inherit.lpSecurityDescriptor = NULL;
++#else
+         inherit.lpSecurityDescriptor = (PSECURITY_DESCRIPTOR)(&sd);
++#endif
+         inherit.bInheritHandle = TRUE;
+
+         /* By convention, parent gets pipe[0], and child gets pipe[1].
