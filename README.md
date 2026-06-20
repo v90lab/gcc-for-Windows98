@@ -78,8 +78,10 @@ cd repro
    vi, make, ctags, muon silently lose `~` expansion, config-file lookup, and command history.
    Both zips ship an identical copy of `setenv.bat`, so calling either one works; only one call
    is needed.
-4. Reboot (or run `C:\AUTOEXEC.BAT` from a fresh DOS prompt to re-apply).
-5. Verify with `C:\gcc_win98\check-versions.bat` — a one-shot `--version` sweep over every
+4. Create `C:\Home` as a directory for programs to store their config files in
+   (referenced from `setenv.bat`)
+5. Reboot (or run `C:\AUTOEXEC.BAT` from a fresh DOS prompt to re-apply).
+6. Verify with `C:\gcc_win98\check-versions.bat` — a one-shot `--version` sweep over every
    bundled tool. If a tool errors with a system dialog (bad PE / missing import), something
    was extracted incompletely; a tool that prints its banner is good.
 
