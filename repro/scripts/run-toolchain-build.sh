@@ -129,6 +129,7 @@ declare -a NATIVE_STEPS=(
   "build-native-pthread9x|build-native-pthread9x.sh|Build native-host pthread9x|builder"
   "verify-native-compiler-features|verify-native-compiler-features.sh|Verify native compiler features|builder"
   "verify-native-win98-capability|verifiers/verify-native-package.sh|Verify native toolset Win98 capability|builder"
+  "install-win98-compat-native|install-win98-compat-native.sh|Mirror win98-compat shim into native toolset|builder"
   "package-native-toolset|package-native-toolset.sh|Package native toolset|builder"
   "write-native-toolchain-manifest-v2|write-toolchain-manifest.sh|Write native toolchain manifest|builder"
 )
