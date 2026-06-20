@@ -116,6 +116,7 @@ declare -a CROSS_STEPS=(
   "build-gcc|build-cross-gcc.sh|Build GCC final|builder"
   "verify-cross-compiler-features|verify-cross-compiler-features.sh|Verify cross compiler features|builder"
   "build-win98-compat|build-win98-compat.sh|Build Win98 API compat shim (libwin98compat.a)|builder"
+  "install-pe-checker|install-pe-checker.sh|Bundle pe-win98-check.sh + data into cross toolchain|builder"
   "package|package-cross-toolset.sh|Package cross toolchain|builder"
   "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder"
 )

@@ -70,18 +70,40 @@ PE_FORBIDDEN_IMPORT_PATTERNS=(
     "vcruntime"
 )
 
-# Resolve the allowlist + denylist JSON. The script lives at
-# repro/scripts/verifiers/pe-win98-check.sh; the JSON at repro/data/...
-_pe_check_default_allowlist() {
+# Resolve the allowlist + denylist JSON. Two supported layouts:
+#   * Repo layout:           repro/scripts/verifiers/pe-win98-check.sh
+#                            repro/data/{allowlist,denylist}.json
+#                            (data resolves at $self/../../data/)
+#   * Flat installed layout: $toolchain/share/win98-verify/pe-win98-check.sh
+#                            $toolchain/share/win98-verify/{allowlist,denylist}.json
+#                            (data sits next to the script)
+# The repo layout is tried first so in-tree behavior is unchanged; the flat
+# layout is the fallback used by the cross-toolchain bundle. PE_CHECK_ALLOWLIST
+# / PE_CHECK_DENYLIST still override both.
+_pe_check_resolve_data() {
+    local basename="$1"
     local self_dir
     self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    printf '%s\n' "$self_dir/../../data/win98se-api-allowlist.json"
+    if [[ -f "$self_dir/../../data/$basename" ]]; then
+        printf '%s\n' "$self_dir/../../data/$basename"
+        return
+    fi
+    if [[ -f "$self_dir/$basename" ]]; then
+        printf '%s\n' "$self_dir/$basename"
+        return
+    fi
+    # Nothing found — return the repo-relative path so error messages stay
+    # readable. The caller falls through to a degraded mode when the file
+    # doesn't exist anyway.
+    printf '%s\n' "$self_dir/../../data/$basename"
+}
+
+_pe_check_default_allowlist() {
+    _pe_check_resolve_data "win98se-api-allowlist.json"
 }
 
 _pe_check_default_denylist() {
-    local self_dir
-    self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    printf '%s\n' "$self_dir/../../data/win98-behavioral-denylist.json"
+    _pe_check_resolve_data "win98-behavioral-denylist.json"
 }
 
 : "${PE_CHECK_ALLOWLIST=$(_pe_check_default_allowlist)}"
