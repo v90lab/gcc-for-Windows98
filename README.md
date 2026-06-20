@@ -57,8 +57,39 @@ cd repro
 - `repro/out/packages`
 
   - `gcc-win98-native-toolchain.zip` -- Native Windows 98 compiler
-  - `gcc-win98-cross-toolchain.tar.xz` -- Linux cross compiler for Windows 98
   - `gcc-win98-native-toolchain-extras.zip` -- Extra build tools added by this fork (see above)
+  - `gcc-win98-cross-toolchain.tar.xz` -- Linux cross compiler for Windows 98
+
+### Install on Windows 98
+
+1. Copy `gcc-win98-native-toolchain.zip` (and optionally `gcc-win98-native-toolchain-extras.zip`)
+   to the Win98 box.
+2. Extract them to the drive root with 7-Zip 9.20 (the last 7-Zip release that runs on Win98 SE).
+   This gives you `C:\gcc_win98\` and `C:\gcc_win98_extras\`.
+3. Edit `C:\AUTOEXEC.BAT` and append:
+
+   ```bat
+   PATH=%PATH%;C:\gcc_win98\bin;C:\gcc_win98_extras\bin
+   call C:\gcc_win98\setenv.bat
+   ```
+
+   The `setenv.bat` line is important — Win98 SE doesn't set `HOME` / `HOMEDRIVE` / `HOMEPATH` /
+   `TMP` / `TEMP` by default, and without them gdb prints index-cache warnings and busybox sh /
+   vi, make, ctags, muon silently lose `~` expansion, config-file lookup, and command history.
+   Both zips ship an identical copy of `setenv.bat`, so calling either one works; only one call
+   is needed.
+4. Reboot (or run `C:\AUTOEXEC.BAT` from a fresh DOS prompt to re-apply).
+5. Verify with `C:\gcc_win98\check-versions.bat` — a one-shot `--version` sweep over every
+   bundled tool. If a tool errors with a system dialog (bad PE / missing import), something
+   was extracted incompletely; a tool that prints its banner is good.
+
+### Install on Linux (cross toolchain)
+
+Extract `gcc-win98-cross-toolchain.tar.xz` somewhere stable (e.g. `/opt`) and prepend its `bin/`
+to `PATH`. The toolchain is fully relocatable — no postinstall step needed. The standalone
+`pe-win98-check` script lands on `PATH` automatically and lets you sanity-check any Win98 PE
+output of your own cross-builds (`pe-win98-check foo.exe`, or `find . -name '*.exe' | xargs
+pe-win98-check`).
 
 ## Additions, Changes and Fixes in [ahrbe1/gcc-for-Windows98](https://github.com/ahrbe1/gcc-for-Windows98)
 
