@@ -1,0 +1,1 @@
+0001-skip-nt-security-descriptor-on-win98.patch

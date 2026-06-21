@@ -1,0 +1,7 @@
+0001-respect-_USE_32BIT_TIME_T-on-mingw-v10.patch
+0002-skip-nt-security-stubs-on-win98.patch
+0003-spawn-backslash-path.patch
+0004-forkshell-named-mapping.patch
+0005-terminal-mode-force-console-api-on-win9x.patch
+0006-wait-for-child-skip-ctrl-handler-on-win9x.patch
+0008-waitpid-handle-not-pid-on-win9x.patch

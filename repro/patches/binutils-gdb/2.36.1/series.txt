@@ -1,0 +1,1 @@
+0001-mingw-hdep-poll-console-input-on-win9x.patch

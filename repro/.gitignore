@@ -1,7 +1,5 @@
 .env
-
 .status-*
-
 *.dll
 *.exe
 *.so
@@ -12,4 +10,3 @@ out/
 tmp/
 src/
 
-*.txt
