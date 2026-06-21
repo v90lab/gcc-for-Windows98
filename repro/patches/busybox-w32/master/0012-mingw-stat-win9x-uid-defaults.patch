@@ -1,0 +1,57 @@
+From: gcc-for-windows98 patcher <patches@example.invalid>
+Subject: [PATCH] mingw_stat: Win9x-correct uid/perm defaults
+
+do_lstat's READ_CONTROL CreateFile probe (gated on
+ENABLE_FEATURE_EXTRA_FILE_DATA) predictably fails on Win9x --
+there are no NT security descriptors to query.  The existing
+failure-branch sets st_uid=0 and strips S_IRWXO, but on Win9x
+this creates two problems:
+
+  1. getuid() returns DEFAULT_UID (4095) on Win9x (via
+     elevation_state()'s _WIN98_PORT branch), so st_uid=0
+     doesn't match any uid-based access check.
+
+  2. Stripping S_IRWXO is semantically wrong on Win9x -- every
+     file IS world-accessible; there is no access-restriction
+     model to defer to.
+
+Net effect: ash's find_command::test_exec rejects every
+PATH-resolved executable on Win9x with EACCES (`<cmd>: Permission
+denied`).  Full-path invocations bypass find_command entirely
+and reach spawnveq, whose check is just S_ISREG && S_IXUSR
+(passes -- S_IXUSR is still set in 0770), so they work fine.
+That's the asymmetry users saw: `ctags` fails, but
+`/opt/extras/bin/ctags.exe` runs.  Round 7 BBLOG.TXT
+(consdiag/run_7) traced it definitively.
+
+Wine doesn't reproduce: under Wine CreateFile with READ_CONTROL
+succeeds, the if-branch sets a real uid via file_owner, and
+test_exec's `st_uid == euid` arm passes.  Real Win98 only.
+
+Add an `else if (is_win9x_proc())` arm that uses DEFAULT_UID/GID
+(to match getuid()) and leaves S_IRWXO alone.  NT behavior
+preserved verbatim.
+
+---
+diff --git a/win32/mingw.c b/win32/mingw.c
+--- a/win32/mingw.c
++++ b/win32/mingw.c
+@@ -849,6 +849,18 @@
+ 				}
+ 				buf->st_uid = buf->st_gid = file_owner(fh, buf);
+ 				CloseHandle(fh);
++			} else if (is_win9x_proc()) {
++				/* Win9x has no NT security descriptors; the
++				 * READ_CONTROL CreateFile probe predictably
++				 * fails.  The original else-branch sets st_uid=0
++				 * + strips S_IRWXO, which on Win9x then mismatches
++				 * getuid()=DEFAULT_UID and makes ash's find_command
++				 * test_exec reject every PATH-resolved executable
++				 * with "Permission denied".  Use sensible Win9x
++				 * defaults: match the uid getuid() reports, and
++				 * leave S_IRWXO alone (every Win9x file is in
++				 * fact world-accessible -- no security model). */
++				buf->st_uid = buf->st_gid = DEFAULT_UID;
+ 			} else {
+ 				buf->st_uid = buf->st_gid = 0;
+ 				buf->st_mode &= ~S_IRWXO;

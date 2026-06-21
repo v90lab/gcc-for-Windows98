@@ -10,6 +10,58 @@ When a fix moves from "Open" or "Known broken" to "Confirmed working" in the tra
 
 ---
 
+## 2026-06-21 — PATH-relative exec `permission denied` (mingw_stat strips S_IRWXO on Win9x)
+
+**Symptom:** from inside `busybox sh`, every non-applet binary invoked by bare name (`ctags`, `make`, `gdb`, `muon`, `diff`, `cmp`, `patch`) failed with `<cmd>: Permission denied`. Full-path form (`/opt/extras/bin/ctags.exe`) worked. bb-shim applets (`ls`, `cp`, `vi`, ...) worked because they short-circuit through busybox's applet dispatch before reaching the PATH walk. The asymmetry between "bare name" and "full path" was the key clue — same binary, two different ash code paths.
+
+**Patches that fixed it:** [`0012-mingw-stat-win9x-uid-defaults.patch`](../patches/busybox-w32/master/0012-mingw-stat-win9x-uid-defaults.patch).
+
+### Round 8 (CONFIRMED FIXED 2026-06-21 ~15:45 UTC)
+
+**Build:** zip `6fe9e646...`, busybox.exe `9dfd1303...`.
+
+**Result:** ✅ confirmed fixed on real Win98. All PATH-relative non-applet binaries (`ctags`, `make`, `gdb`, etc.) now run successfully from inside `sh`.
+
+**Root cause (one-paragraph version):** mingw_stat's `do_lstat` (gated on `ENABLE_FEATURE_EXTRA_FILE_DATA`) probes NT security info via `CreateFile(..., READ_CONTROL, ...)`. On Win9x that call always fails (no security descriptors). The existing failure-branch sets `st_uid = st_gid = 0` and strips `S_IRWXO`. But on Win9x `getuid()` returns `DEFAULT_UID = 4095` (not 0) and every file is in fact world-accessible — so both fallbacks are wrong. Net effect: every stat() returned `st_mode = 0...770` with `st_uid = 0`, which made ash's `find_command::test_exec` fall through to checking S_IXOTH (zero) and reject every PATH-resolved executable with EACCES. Full-path invocations bypassed `find_command` entirely and reached `spawnveq`, whose check is just `S_ISREG && S_IXUSR` (passes — S_IXUSR is still set in 0770), which is why they worked.
+
+**Fix:** add an `else if (is_win9x_proc())` arm in `do_lstat`'s failure branch that sets `st_uid = st_gid = DEFAULT_UID` (matching `getuid()`) and leaves `S_IRWXO` alone. NT behavior preserved verbatim.
+
+**Lesson:** when a file-access predicate misbehaves and the symptom is asymmetric between two code paths that "should be equivalent" (here: bare-name lookup vs absolute path), the asymmetry usually points at a third caller doing its own permission check with different semantics. The cheap-and-fast `spawnveq` check (S_ISREG && S_IXUSR) and the POSIX-faithful `ash::test_exec` check (full uid/gid/mode walk) are both reading the same st_mode, but only one of them tolerates the Win9x st_mode that mingw_stat produces. The fix went into mingw_stat (the producer) rather than ash (the consumer), so it benefits any other busybox-w32 component that calls stat() — `ls -l`, `find -perm`, the `test` builtin, etc.
+
+This is also the second-in-a-row bug where the surface symptom was "in busybox sh, X doesn't work" and the underlying cause was a Win9x msvcrt/kernel-API behavior difference baked deep in mingw.c. Cf. the winansi_vsnprintf and waitpid_child bugs below. Win9x is permissive in the wrong ways: it returns success from APIs that would error on NT (SetConsoleMode with unknown flags, _vsnprintf truncating instead of probing) and returns errors from APIs that succeed on NT (CreateFile with READ_CONTROL). Wine emulates the NT behavior, so none of this reproduces under Wine — only on real Win9x.
+
+### Round 7 — spawn-trace instrumentation (diagnose)
+
+**Build:** zip `7b8046a2...`, busybox.exe `08c3b7ac...`.
+
+**Goal:** find where in the spawn pipeline the `permission denied` is coming from. Two endpoints to discriminate between: (a) busybox's own `mingw_spawnvp` / `spawnveq` check (S_ISREG && S_IXUSR in `process.c`), or (b) something upstream of that — ash's `find_command` doing its own PATH walk before deciding to fork.
+
+**Hypotheses to discriminate:**
+
+1. `find_first_executable` returns NULL — PATH walk doesn't find the binary on Win9x (slash/case mismatch).
+2. `find_first_executable` returns the path, `mingw_stat` then returns EACCES inside `spawnveq` (race/sharing-violation between two stat calls on the same file).
+3. `mingw_stat` returns success but `spawnveq`'s mode check fails (S_IXUSR not set on .exes for some Win9x-specific reason).
+4. The failure is upstream of `mingw_spawnvp` entirely — ash rejects the command before even reaching `find_first_executable`.
+
+**Patch 0011 ([`0011-bbdbg-spawn-instrumentation.patch`](../patches/busybox-w32/master/0011-bbdbg-spawn-instrumentation.patch))** added bbdbg_log calls at three points in `win32/process.c`: `mingw_spawnvp` entry (cmd, has_path, applet hit), per-branch (paths returned by `file_is_win32_exe` and `find_first_executable`), and `spawnveq`'s stat-check (replaced the if/else block with a diagnostic version recording rc, errno, st_mode with S_ISREG and S_IXUSR broken out, plus the verdict OK / EACCES-mode / stat-failed). Unconditional logging — spawn calls are infrequent.
+
+**Test plan:** delete `C:\BBLOG.TXT`, start sh, run `ctags --version` (bare name) and `/opt/extras/bin/ctags.exe --version` (full path), exit, retrieve the log.
+
+**What BBLOG showed (the surprise):**
+
+- The full-path invocation logged exactly what was expected: `SPAWN spawnveq path="/opt/extras/bin/ctags.exe" stat=0 errno=0 st_mode=0100770 S_ISREG=1 S_IXUSR=1`. spawnveq's mode check passed; ctags ran; exit code 0.
+- The bare-name invocations logged **nothing at all** at any of the three instrumentation points. No `mingw_spawnvp ENTRY`, no `PATH-branch`, no `spawnveq`. Just a forkshell setup, then waitpid loops, then the child sh exited.
+
+That ruled out hypotheses 1, 2, 3 at once: the failure was upstream of `mingw_spawnvp`. Hypothesis 4 was right. Looking at ash's `find_command` source, the EACCES literally comes from `e = EACCES; if (!test_exec(/*fullname,*/ &statb)) continue;` in the PATH walk — ash does its own POSIX-style executable check via `test_exec` BEFORE deciding to spawn.
+
+The log line `st_mode=0100770` from the full-path case became the smoking gun: `0700 | 0070` for user+group rwx, but **`0000` for "other"**. mingw_stat had stripped S_IRWXO. ash's test_exec uses `stat.st_uid == getuid()` and `stat.st_gid == getgid()` as the matching arms — and grepping mingw.c for where st_uid gets set showed the `else { buf->st_uid = buf->st_gid = 0; buf->st_mode &= ~S_IRWXO; }` failure branch in `do_lstat`. That branch only fires when `CreateFile(..., READ_CONTROL, ...)` fails — which on Win9x is always, because there are no security descriptors to read. Diagnosis → fix is round 8 above.
+
+**Saved log:** [`consdiag/run_7/BBLOG.TXT`](../../consdiag/run_7/BBLOG.TXT).
+
+**Lesson worth carrying:** the round-7 instrumentation didn't fire on the failing path, and that "absence of log" was the most informative single data point in the trace. When instrumenting to find a bug, instrument the code path you *think* is failing AND log enough breadcrumbs at upstream entry points to detect "we never got there." Patch 0011's `mingw_spawnvp` ENTRY log was the breadcrumb that proved ash rejected the command before any spawn was attempted.
+
+---
+
 ## 2026-06-21 — busybox `sh` raw-escape bug (winansi_vsnprintf on Win9x msvcrt)
 
 **Symptom:** typing Backspace in `sh` printed `<-[1D` (raw CSI cursor-back) instead of erasing a character; `ls --color` printed raw `<-[0;34m` color escapes instead of colored output. Both visible to the user as garbled text on the Win98 console.

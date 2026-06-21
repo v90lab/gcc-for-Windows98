@@ -8,3 +8,5 @@
 0008-waitpid-handle-not-pid-on-win9x.patch
 0009-bbdbg-wansi-instrumentation.patch
 0010-winansi-vsnprintf-fix-win9x.patch
+0011-bbdbg-spawn-instrumentation.patch
+0012-mingw-stat-win9x-uid-defaults.patch

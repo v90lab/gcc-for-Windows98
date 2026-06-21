@@ -1,0 +1,121 @@
+From: gcc-for-windows98 patcher <patches@example.invalid>
+Subject: [PATCH] process: instrument spawnvp + spawnveq for Win98 trace
+
+From inside busybox sh on Win98 SE, any non-applet binary invoked
+by PATH-relative name (ctags, make, gdb, muon, diff, patch, ...)
+fails with `permission denied`.  Full-path invocation works.
+bb-shim applets (ls, cp, vi, ...) short-circuit through
+mingw_spawn_applet and bypass the PATH walk + stat-check entirely,
+which is why they're unaffected.
+
+Add bbdbg_log() calls at three points in win32/process.c:
+  * mingw_spawnvp entry  -- cmd, has_path, unix_path, applet hit
+  * mingw_spawnvp per-branch  -- the path string returned by
+    file_is_win32_exe (has-path branch) and find_first_executable
+    (PATH branch), plus the ENOENT-exit case
+  * spawnveq stat-check  -- replace the if/else block with a
+    diagnostic version that records the stat rc, errno, st_mode
+    (S_ISREG and S_IXUSR bits broken out), and the verdict
+    (OK / EACCES-mode / stat-failed)
+
+All output goes to C:\BBLOG.TXT via bbdbg_log (patch 0007).  No
+env gate -- spawn calls are low frequency compared to winansi
+writes so unconditional logging is cheap.  Depends on patch 0007;
+remove with 0007/0009 before shipping a stable release.
+
+---
+diff --git a/win32/process.c b/win32/process.c
+--- a/win32/process.c
++++ b/win32/process.c
+@@ -184,15 +184,35 @@
+ 	 * Require that the file exists, is a regular file and is executable.
+ 	 * It may still contain garbage but we let spawnve deal with that.
+ 	 */
+-	if (stat(path, &st) == 0) {
+-		if (!S_ISREG(st.st_mode) || !(st.st_mode&S_IXUSR)) {
+-			errno = EACCES;
++	{
++		/* patch 0011: spawn trace */
++		int sret, serrno, sisreg, sixusr;
++		unsigned smode;
++		errno = 0;
++		sret = stat(path, &st);
++		serrno = errno;
++		smode = (sret == 0) ? (unsigned)st.st_mode : 0u;
++		sisreg = (sret == 0) ? !!S_ISREG(st.st_mode) : -1;
++		sixusr = (sret == 0) ? !!(st.st_mode & S_IXUSR) : -1;
++		bbdbg_log("SPAWN spawnveq path=\"%s\" stat=%d errno=%d "
++			"st_mode=0%o S_ISREG=%d S_IXUSR=%d",
++			path ? path : "(null)", sret, serrno, smode,
++			sisreg, sixusr);
++		if (sret == 0) {
++			if (!S_ISREG(st.st_mode) || !(st.st_mode&S_IXUSR)) {
++				bbdbg_log("SPAWN spawnveq VERDICT=EACCES-mode path=\"%s\"",
++					path ? path : "(null)");
++				errno = EACCES;
++				return -1;
++			}
++		}
++		else {
++			bbdbg_log("SPAWN spawnveq VERDICT=stat-failed errno=%d path=\"%s\"",
++				serrno, path ? path : "(null)");
++			errno = serrno;
+ 			return -1;
+ 		}
+ 	}
+-	else {
+-		return -1;
+-	}
+ 
+ 	argc = string_array_len((char **)argv);
+ 	new_argv = xzalloc(sizeof(*argv)*(argc+1));
+@@ -378,6 +398,14 @@
+ 	char *path;
+ 	intptr_t ret;
+ 
++	/* patch 0011: spawn trace */
++	bbdbg_log("SPAWN mingw_spawnvp ENTRY cmd=\"%s\" has_path=%d "
++		"unix_path=%d applet=%d",
++		cmd ? cmd : "(null)",
++		cmd ? has_path(cmd) : -1,
++		cmd ? unix_path(cmd) : -1,
++		cmd ? (find_applet_by_name(bb_basename(cmd)) >= 0) : -1);
++
+ #if ENABLE_FEATURE_PREFER_APPLETS && NUM_APPLETS > 1
+ 	if ((!has_path(cmd) || unix_path(cmd)) &&
+ 			find_applet_by_name(bb_basename(cmd)) >= 0)
+@@ -385,6 +413,9 @@
+ #endif
+ 	if (has_path(cmd)) {
+ 		path = file_is_win32_exe(cmd);
++		bbdbg_log("SPAWN mingw_spawnvp has_path-branch cmd=\"%s\" "
++			"file_is_win32_exe=\"%s\"",
++			cmd ? cmd : "(null)", path ? path : "(null)");
+ 		if (path) {
+ 			ret = mingw_spawn_interpreter(mode, path, argv, NULL, 0);
+ 			free(path);
+@@ -394,12 +425,20 @@
+ 			cmd = bb_basename(cmd);
+ 	}
+ 
+-	if (!has_path(cmd) && (path = find_first_executable(cmd)) != NULL) {
+-		ret = mingw_spawn_interpreter(mode, path, argv, NULL, 0);
+-		free(path);
+-		return ret;
++	if (!has_path(cmd)) {
++		path = find_first_executable(cmd);
++		bbdbg_log("SPAWN mingw_spawnvp PATH-branch cmd=\"%s\" "
++			"find_first_executable=\"%s\"",
++			cmd ? cmd : "(null)", path ? path : "(null)");
++		if (path != NULL) {
++			ret = mingw_spawn_interpreter(mode, path, argv, NULL, 0);
++			free(path);
++			return ret;
++		}
+ 	}
+ 
++	bbdbg_log("SPAWN mingw_spawnvp EXIT-ENOENT cmd=\"%s\"",
++		cmd ? cmd : "(null)");
+ 	errno = ENOENT;
+ 	return -1;
+ }

@@ -101,12 +101,13 @@ The toolchain builds and installs, but expect rough edges. It has not undergone 
 
 #### Open Bugs
 
-- From inside `busybox sh`, non-applet binaries (`ctags`, `make`, `gdb`, `muon`, `diff`, `patch`) fail with `permission denied` when invoked by bare name; full path (`/opt/extras/bin/ctags.exe`) works. bb-shim applets (`ls`, `cp`, `vi`, ...) are unaffected because they short-circuit through busybox's applet dispatch before reaching the PATH walk.
+(none currently)
 
 #### Recent Bugs Fixed
 
+- From inside `busybox sh`, non-applet binaries (`ctags`, `make`, `gdb`, `muon`, `diff`, `patch`) failed with `permission denied` when invoked by bare name; full path worked
 - `busybox sh` hung after every external command
-- Backspace printed literal `^[[1D` and `ls --color` printed raw color escape codes to the terminal
+- Backspace key and `ls --color` both printed raw (visible) escape codes to the terminal
 - An error `sh: unable to spawn shell` was reported on the first command typed from within the `sh` shell
 
 ## Additions, Changes and Fixes in [ahrbe1/gcc-for-Windows98](https://github.com/ahrbe1/gcc-for-Windows98)
