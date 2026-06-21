@@ -93,6 +93,22 @@ to `PATH`. The toolchain is fully relocatable — no postinstall step needed. Th
 output of your own cross-builds (`pe-win98-check foo.exe`, or `find . -name '*.exe' | xargs
 pe-win98-check`).
 
+### Current Status
+
+Early stages / in active development.
+
+The toolchain builds and installs, but expect rough edges. It has not undergone real use yet.
+
+#### Open Bugs
+
+- From inside `busybox sh`, non-applet binaries (`ctags`, `make`, `gdb`, `muon`, `diff`, `patch`) fail with `permission denied` when invoked by bare name; full path (`/opt/extras/bin/ctags.exe`) works. bb-shim applets (`ls`, `cp`, `vi`, ...) are unaffected because they short-circuit through busybox's applet dispatch before reaching the PATH walk.
+
+#### Recent Bugs Fixed
+
+- `busybox sh` hung after every external command
+- Backspace printed literal `^[[1D` and `ls --color` printed raw color escape codes to the terminal
+- An error `sh: unable to spawn shell` was reported on the first command typed from within the `sh` shell
+
 ## Additions, Changes and Fixes in [ahrbe1/gcc-for-Windows98](https://github.com/ahrbe1/gcc-for-Windows98)
 
 - Fixes to allow building with docker desktop + git bash on windows (still works on linux hosts)
