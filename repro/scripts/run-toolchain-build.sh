@@ -150,6 +150,7 @@ declare -a EXTRAS_STEPS=(
   "build-bcrypt-shim|build-bcrypt-shim.sh|Build bcrypt.dll shim for gdb|builder"
   "build-bb-shims|build-bb-shims.sh|Build + install bb-shim applet copies|builder"
   "build-consdiag|build-consdiag.sh|Build consdiag.exe Win9x stdio diagnostic|builder"
+  "build-sockdiag|build-sockdiag.sh|Build sockdiag.exe Win9x Winsock diagnostic|builder"
   "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder"
   "install-win98-helpers-extras|install-win98-helpers-extras.sh|Install setenv.bat + check-versions.bat into extras toolset|builder"
   "write-extras-build-info|write-extras-build-info.sh|Write BUILD.TXT into extras toolset root|builder"
