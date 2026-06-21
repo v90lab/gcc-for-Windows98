@@ -49,45 +49,46 @@ else
     bad "pe-win98-check PATH resolution unexpected (got: '$RESOLVED', want: '$CHECKER')"
 fi
 
-# ── 2. PASS path ──────────────────────────────────────────────────────────────
-log "=== PASS path ==="
+# ── 2. Acceptance path ───────────────────────────────────────────────────────
+# A known-good native binary should be accepted (rc=0, [PASS] line).
+log "=== checker accepts known-good binary ==="
 GOOD_EXE="/opt/native-toolset/bin/gcc.exe"
 if [[ -f "$GOOD_EXE" ]]; then
     if out=$("$CHECKER" "$GOOD_EXE" 2>&1); then
-        ok "PASS: $GOOD_EXE → $out"
+        ok "accepted as expected: $GOOD_EXE → $out"
     else
-        bad "expected PASS but got rc=$? for $GOOD_EXE — output: $out"
+        bad "expected acceptance but checker returned rc=$? for $GOOD_EXE — output: $out"
     fi
 else
     log "[SKIP] no $GOOD_EXE present"
 fi
 
-# ── 3. FAIL path + 4. Bundled-DLL escape ──────────────────────────────────────
+# ── 3. Rejection path + 4. Bundled-DLL escape ────────────────────────────────
 # gdb.exe imports bcrypt.dll, which is NOT on Win98 SE (the bcrypt-shim ships
 # alongside in the same directory to satisfy the import via App Directory
 # search). The checker should reject it without PE_CHECK_BUNDLED_DLLS and
 # accept it with PE_CHECK_BUNDLED_DLLS=bcrypt.dll.
-log "=== FAIL path + bundled-DLL escape ==="
+log "=== checker rejects bcrypt-importing binary (then accepts with escape hatch) ==="
 BAD_EXE="/opt/extras/bin/gdb.exe"
 if [[ -f "$BAD_EXE" ]]; then
     if out=$("$CHECKER" "$BAD_EXE" 2>&1); then
-        bad "FAIL path: $BAD_EXE unexpectedly PASSED → $out"
+        bad "expected rejection but checker accepted: $BAD_EXE → $out"
     else
         rc=$?
         if [[ "$rc" -eq 1 && "$out" == *bcrypt* ]]; then
-            ok "FAIL: $BAD_EXE rejected (rc=$rc, reason mentions bcrypt) → $out"
+            ok "rejected as expected: $BAD_EXE (rc=$rc, reason mentions bcrypt) → $out"
         else
-            bad "FAIL path: $BAD_EXE bad rc/reason (rc=$rc) → $out"
+            bad "rejected but with wrong rc/reason: $BAD_EXE (rc=$rc) → $out"
         fi
     fi
 
     if out=$(PE_CHECK_BUNDLED_DLLS=bcrypt.dll "$CHECKER" "$BAD_EXE" 2>&1); then
-        ok "bundled-DLL escape: $BAD_EXE accepted with PE_CHECK_BUNDLED_DLLS=bcrypt.dll → $out"
+        ok "bundled-DLL escape works: $BAD_EXE accepted with PE_CHECK_BUNDLED_DLLS=bcrypt.dll → $out"
     else
-        bad "bundled-DLL escape: $BAD_EXE rejected even with PE_CHECK_BUNDLED_DLLS=bcrypt.dll (rc=$?) → $out"
+        bad "bundled-DLL escape failed: $BAD_EXE still rejected with PE_CHECK_BUNDLED_DLLS=bcrypt.dll (rc=$?) → $out"
     fi
 else
-    log "[SKIP] no $BAD_EXE present (extras not built — gdb.exe FAIL/escape tests skipped)"
+    log "[SKIP] no $BAD_EXE present (extras not built — gdb.exe rejection/escape tests skipped)"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
