@@ -145,9 +145,16 @@ rm -rf "$CROSS_BUILD_DIR"
 export PATH="$CROSS_BIN_DIR:$PATH"
 
 log "configuring muon cross-build for $TARGET"
+# --buildtype=release: meson defaults to `debug` (-O0 -g) which leaves muon
+# unoptimized and -DMUON_RELEASE=0 (extra assertions/logging in muon's own
+# code). Release gives -O3 -DNDEBUG and flips MUON_RELEASE=1. The autoconf
+# tools on either side of this all bake in -g -O2 by default, so muon was
+# the only shipped binary running at -O0 — caught after the strip-toolset
+# pass made the size comparison stark.
 run_logged build-native-muon.log meson setup \
     --cross-file "$CROSS_FILE" \
     --prefix "$INSTALL_DIR" \
+    --buildtype=release \
     -Dstatic=true \
     -Dsamurai=enabled \
     -Dreadline=builtin \
