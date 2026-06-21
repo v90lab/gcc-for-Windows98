@@ -25,6 +25,7 @@ RUN ./apt-mirror-selector.sh -y --no-install-recommends \
       patch \
       xz-utils \
       unzip \
+      jq \
       ca-certificates \
       libisl23 \
       libmpc3 \

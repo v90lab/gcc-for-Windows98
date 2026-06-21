@@ -80,10 +80,23 @@ PE_FORBIDDEN_IMPORT_PATTERNS=(
 # The repo layout is tried first so in-tree behavior is unchanged; the flat
 # layout is the fallback used by the cross-toolchain bundle. PE_CHECK_ALLOWLIST
 # / PE_CHECK_DENYLIST still override both.
+#
+# When invoked via the cross-toolchain $PREFIX/bin/pe-win98-check wrapper
+# symlink, BASH_SOURCE[0] is the symlink path itself — a naive
+# `cd $(dirname $BASH_SOURCE) && pwd` leaves us in bin/, both candidate
+# paths miss, and the per-function check silently skips. Walk symlinks
+# until we land on the real script before computing self_dir.
 _pe_check_resolve_data() {
     local basename="$1"
+    local src="${BASH_SOURCE[0]}"
+    while [[ -L "$src" ]]; do
+        local link_dir
+        link_dir="$(cd -P "$(dirname "$src")" && pwd)"
+        src="$(readlink "$src")"
+        [[ "$src" != /* ]] && src="$link_dir/$src"
+    done
     local self_dir
-    self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    self_dir="$(cd -P "$(dirname "$src")" && pwd)"
     if [[ -f "$self_dir/../../data/$basename" ]]; then
         printf '%s\n' "$self_dir/../../data/$basename"
         return
@@ -108,6 +121,22 @@ _pe_check_default_denylist() {
 
 : "${PE_CHECK_ALLOWLIST=$(_pe_check_default_allowlist)}"
 : "${PE_CHECK_DENYLIST=$(_pe_check_default_denylist)}"
+
+# One-shot warning when the per-function/denylist check can't run. The cheaper
+# DLL-substring + OS-version checks still cover the most common forbidden
+# imports (ucrt, vcruntime, api-ms-win-*), so the binary may still get a
+# correct [FAIL]. But silently skipping the per-function check led to a real
+# false-PASS on the consumer image (gdb.exe imports bcrypt.dll → DLL not on
+# Win98, but checker returned rc=0). Loud is better than silent.
+_pe_check_warn_degraded_once() {
+    if [[ -n "${_PE_CHECK_WARNED_DEGRADED:-}" ]]; then
+        return
+    fi
+    _PE_CHECK_WARNED_DEGRADED=1
+    local reason="$1"
+    printf '[WARN] pe-win98-check: %s\n' "$reason" >&2
+    printf '[WARN] pe-win98-check: per-function and behavioral-denylist checks SKIPPED — a binary that imports an unknown DLL or a stub-only export may falsely report PASS.\n' >&2
+}
 
 # pe_check_win98 <exe>
 # See header for return values and variable side-effects.
@@ -154,20 +183,31 @@ pe_check_win98() {
     #    Denylist: if the function IS exported by Win98 SE but is on the
     #    behavioral denylist (stub-only — binds but always fails at runtime),
     #    reject it with a distinct reason.
-    if [[ "$fail" -eq 0 && -n "${PE_CHECK_ALLOWLIST:-}" \
-          && -f "$PE_CHECK_ALLOWLIST" ]] && command -v jq >/dev/null 2>&1; then
-        _pe_check_allowlist "$dump" || fail=1
-        if [[ -n "$PE_CHECK_BAD_FUNCTION" ]]; then
-            case "$PE_CHECK_BAD_KIND" in
-                denied)
-                    reasons+=("Win98 stub-only (binds but non-functional): $PE_CHECK_BAD_FUNCTION")
-                    ;;
-                *)
-                    reasons+=("import not available on Win98: $PE_CHECK_BAD_FUNCTION")
-                    ;;
-            esac
-        elif [[ -n "$PE_CHECK_BAD_IMPORT" && "$fail" -eq 1 ]]; then
-            reasons+=("DLL not present on Win98: $PE_CHECK_BAD_IMPORT")
+    #
+    #    PE_CHECK_ALLOWLIST="" (explicit empty) means "skip the per-function
+    #    check, don't warn" — caller has opted out. Anything else (default or
+    #    explicit path) but a missing file or missing jq is a *degraded* run
+    #    and gets a one-shot stderr warning so the user knows the checker
+    #    didn't run at full strength.
+    if [[ "$fail" -eq 0 && -n "${PE_CHECK_ALLOWLIST:-}" ]]; then
+        if [[ ! -f "$PE_CHECK_ALLOWLIST" ]]; then
+            _pe_check_warn_degraded_once "allowlist not found at $PE_CHECK_ALLOWLIST"
+        elif ! command -v jq >/dev/null 2>&1; then
+            _pe_check_warn_degraded_once "jq not available on PATH (required for per-function and behavioral-denylist checks)"
+        else
+            _pe_check_allowlist "$dump" || fail=1
+            if [[ -n "$PE_CHECK_BAD_FUNCTION" ]]; then
+                case "$PE_CHECK_BAD_KIND" in
+                    denied)
+                        reasons+=("Win98 stub-only (binds but non-functional): $PE_CHECK_BAD_FUNCTION")
+                        ;;
+                    *)
+                        reasons+=("import not available on Win98: $PE_CHECK_BAD_FUNCTION")
+                        ;;
+                esac
+            elif [[ -n "$PE_CHECK_BAD_IMPORT" && "$fail" -eq 1 ]]; then
+                reasons+=("DLL not present on Win98: $PE_CHECK_BAD_IMPORT")
+            fi
         fi
     fi
 

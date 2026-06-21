@@ -78,6 +78,24 @@ if [[ "$RESOLVED_DENY" != "$INSTALL_DIR/win98-behavioral-denylist.json" ]]; then
     die "bundled checker resolved denylist to $RESOLVED_DENY (expected $INSTALL_DIR/win98-behavioral-denylist.json)"
 fi
 
+# Same resolution check but via the bin/ wrapper symlink. The two prior checks
+# source the script through its real path; this one exercises the symlink
+# traversal in _pe_check_resolve_data. Catches the regression where a naive
+# `cd $(dirname BASH_SOURCE) && pwd` leaves self_dir == bin/ and both
+# candidate data paths miss — the symptom is the per-function check silently
+# skipping in downstream use, with PASS on binaries that should FAIL (e.g.
+# anything importing bcrypt.dll).
+RESOLVED_VIA_SYMLINK=$(
+    env -u PE_CHECK_ALLOWLIST -u PE_CHECK_DENYLIST bash -c '
+        # shellcheck disable=SC1090
+        source "$1"
+        _pe_check_default_allowlist
+    ' _ "$PREFIX/bin/pe-win98-check"
+)
+if [[ "$RESOLVED_VIA_SYMLINK" != "$INSTALL_DIR/win98se-api-allowlist.json" ]]; then
+    die "bin/pe-win98-check wrapper symlink resolved allowlist to $RESOLVED_VIA_SYMLINK (expected $INSTALL_DIR/win98se-api-allowlist.json) — symlink traversal in _pe_check_resolve_data is broken"
+fi
+
 # And confirm the bin/ wrapper executes end-to-end. Feed it a non-PE file so
 # the run returns rc=0 with a [SKIP] line — exercises argv parsing, the
 # pe_check_win98 codepath, and the wrapper resolution without depending on a

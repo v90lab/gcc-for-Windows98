@@ -58,6 +58,7 @@ fi
 # Phase 3: CMake+Ninja build with cross + native toolchains, Win98 check + wine run
 declare -a SMOKE_STEPS=(
   "smoke-layout|smoke-verify-layout.sh|Phase 1: toolchain layout verification"
+  "smoke-bundled-pe|smoke-bundled-pe-check.sh|Phase 1b: bundled pe-win98-check end-to-end"
   "smoke-native-pe|smoke-check-native-pe.sh|Phase 2: native toolchain Win98 PE compatibility"
   "smoke-extras-pe|smoke-check-extras-pe.sh|Phase 2b: extras toolset Win98 PE compatibility"
   "smoke-cmake-cross|smoke-cmake-build.sh cross ${JOBS}|Phase 3a: cross toolchain CMake build + Win98 check + wine run"
