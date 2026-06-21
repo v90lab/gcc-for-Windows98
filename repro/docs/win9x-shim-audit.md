@@ -46,17 +46,17 @@ where relevant.
 | `IsWow64Process` (kernel32) | sets `*p=FALSE`, returns TRUE | 5 (busybox process.c, gdb, gdbserver) | 0 | safe — Win9x IS not-WOW64, fallback is factually correct |
 | `GetConsoleWindow` (kernel32) | `NULL` | 3 (busybox ash builtin) | 0 (cosmetic) | benign — ash `hide_console` builtin is a no-op on Win98 |
 | `GetFileSizeEx` (kernel32) | composed from `GetFileSize` (exact) | 1 (mingw-w64-crt `ftruncate64`) | 0 | safe — composition is byte-exact |
-| `getaddrinfo` (ws2_32) | `EAI_FAIL` | 6+ shipped (busybox networking, gdb ser-tcp) | **all of them** | unfixed — hostname-based networking broken on Win98; numeric-IP fast-path in `xconnect.c` survives |
-| `freeaddrinfo` (ws2_32) | no-op | paired with getaddrinfo | n/a | safe by construction (only called on success returns we never produce) |
-| `getnameinfo` (ws2_32) | `EAI_FAIL` | 1 (busybox `xmalloc_sockaddr2dotted`) | low (reverse-DNS only) | mostly benign — error-message formatting paths only |
+| `getaddrinfo` (ws2_32) | `gethostbyname`-based emulation (Win9x); real API on NT | 6+ shipped (busybox networking, gdb ser-tcp) | **all of them** | **implemented** in shim (single A-record IPv4) — pending real-Win98 validation; consumer rebuild required for the new emulation to reach shipped binaries |
+| `freeaddrinfo` (ws2_32) | walks chain and frees nodes + sockaddrs | paired with getaddrinfo | n/a | **implemented** alongside getaddrinfo |
+| `getnameinfo` (ws2_32) | `gethostbyaddr` + `inet_ntoa` (host) / `getservbyport` (service); numeric fallback both ways | 1 (busybox `xmalloc_sockaddr2dotted`) | low (reverse-DNS only) | **implemented** in shim |
 | `SystemFunction036` (advapi32, aka RtlGenRandom) | `rand()` seeded from `GetTickCount` | 0 (busybox runtime-probes; yescrypt comment in shim is stale) | 0 | safe — shim still useful for stack_chk_guard static binding in mingw-w64 ssp; non-crypto seed is acceptable for the only consumer |
 | `qsort_s` (msvcrt) | reentrant insertion sort | 1 (ctags `sort_r.h`) | 0 | safe — semantically equivalent; insertion sort O(n²) on small inputs is fine for tag tables |
 | `BCryptGenRandom` (bcrypt — bundled DLL shim) | `rand()` seeded from `GetTickCount` | 0 (gnulib runtime-probes; only consumer is libstdc++ random_device at link time) | 0 | safe — non-crypto seed is documented trade-off in AGENTS.md §5.7 |
 
-**Net summary.** Two functions have load-bearing static callers with degraded Win9x behavior:
+**Net summary.** One unfixed load-bearing issue remains:
 
-1. `GetProcessId` — cascade-breaks most busybox `spawn`-using applets via `wait4pid(pid<=0) → -1` (detailed below).
-2. `getaddrinfo` — hostname-based networking (`wget`, `ftpget/ftpput`, `httpd`, gdb TCP remote) fails on Win98 with `EAI_FAIL`. Numeric-IP fallback path in [`xconnect.c:223`](../patches/) keeps `1.2.3.4:80` style usage working.
+1. `GetProcessId` — cascade-breaks most busybox `spawn`-using applets via `wait4pid(pid<=0) → -1` (detailed below). Unfixed.
+2. ~~`getaddrinfo` / `getnameinfo` / `freeaddrinfo`~~ — **implemented** in [`win98_compat.c`](../win98-compat/src/win98_compat.c) via lazy-resolved `gethostbyname` / `inet_addr` / `getservbyname` / `getservbyport` / `inet_ntoa` / `gethostbyaddr` + hand-rolled byte-swap. Pending real-Win98 validation (Wine exercises only the NT-delegation path) and full consumer relink for the new emulation to reach shipped `gdb.exe` and busybox networking applets.
 
 Every other shimmed function is either safe (fallback is honest), or bypassed by callers' own runtime-probe + null-handler patterns.
 
@@ -341,26 +341,61 @@ Numeric-IP usage continues to work for everything (`xconnect.c`'s fast-path
 strips the hostname-resolution requirement when the input parses as an IPv4
 literal).
 
-### Reproduction note
+### Cross-environment note for getaddrinfo
 
-Wine emulates `getaddrinfo` against the host's resolver, so this fails only on
-real Win98 — same class as the `GetProcessId` bug per AGENTS.md §5.8.
+Wine emulates `getaddrinfo` against the host's resolver, so the fallback path
+runs only on real Win98 — same class as the `GetProcessId` bug per
+AGENTS.md §5.8. Wine smoke tests validate the NT-path delegation but not the
+Win9x fallback; manual hardware validation tracked in
+[`WIN98-MANUAL-CHECKS.md`](../../WIN98-MANUAL-CHECKS.md).
 
-### Proposed fix shape
+### Implementation (landed in shim)
 
-Two options:
+[`win98_compat.c:205-380`](../win98-compat/src/win98_compat.c) — `gethostbyname`
+adapter, ~120 LOC. Key choices:
 
-1. **Implement `gethostbyname`-based getaddrinfo emulation in the shim** —
-   ~100 LOC against `winsock.h`'s `gethostbyname`. Returns a single IPv4 result
-   for `node` as `AF_INET` + `SOCK_STREAM`. Memory-managed via a static
-   single-slot or `malloc`/`free` (paired `freeaddrinfo` would need to actually
-   free). Honest enough for the busybox / gdb consumers above.
-2. **Leave as-is and document** — numeric IPs work, hostnames don't. Acceptable
-   for a 1998-era target where most users would supply numeric IPs anyway.
+- **Lazy-resolve** `gethostbyname` / `inet_addr` / `getservbyname` /
+  `getservbyport` / `inet_ntoa` / `gethostbyaddr` via `GetProcAddress` against
+  `ws2_32.dll`. Same pattern as the rest of the shim — avoids adding static
+  ws2_32 imports to consumers that link `libwin98compat` but never call
+  getaddrinfo (e.g. `make.exe`, `ctags.exe`).
+- **Hand-rolled `htons`/`htonl`** to avoid pulling ws2_32 in for the
+  byte-swap helpers either (`__imp__htons@4` would otherwise become a new
+  consumer import). gcc -O2 emits a single `bswap` for the pattern.
+- **Single A-record returned.** Consumers iterate `ai_next` but only the first
+  node is populated. Sufficient for the gdb / busybox consumers; round-robin
+  DNS failover degrades to "try the first answer".
+- **AI_PASSIVE + NULL node → INADDR_ANY**, otherwise `INADDR_LOOPBACK` (matches
+  POSIX getaddrinfo). `AI_NUMERICHOST` / `AI_NUMERICSERV` honored.
+  `AI_CANONNAME` ignored (`ai_canonname` stays NULL — no consumer reads it).
+- **IPv4 only**; `AF_INET6` hints return `EAI_FAMILY`. Win9x has no IPv6 stack.
+- **`freeaddrinfo`** walks the `ai_next` chain and frees both the addrinfo and
+  its embedded sockaddr (which are separate calloc blocks per node).
+- **`getnameinfo`** does the inverse: `gethostbyaddr` for hostname (skipped if
+  `NI_NUMERICHOST`); `getservbyport` for service (skipped if `NI_NUMERICSERV`);
+  numeric fallback for both. `NI_NAMEREQD` returns `EAI_NONAME` on lookup
+  failure.
 
-Lean toward option 1 because the diff is small and unblocks `wget`/`ftpget` for
-Win98 archive grabs — exactly the use case the toolset enables. Track separately
-from the GetProcessId fix.
+### Status of the rollout
+
+The shim itself builds clean and the test consumer at
+`/tmp/shim-test/test.exe` runs correctly under Wine (NT delegation path). For
+the new emulation to reach shipped binaries, every consumer that statically
+binds `getaddrinfo` / `freeaddrinfo` / `getnameinfo` via the asm aliases must
+be re-linked — `--whole-archive` embeds the shim's function bodies into each
+consumer's `.text` rather than dispatching through a shared library. The
+relevant binary in the extras toolset is `gdb.exe` (busybox networking applets
+in the same toolset). Sentinels to invalidate when re-running the pipeline:
+
+```sh
+out/.status-i686-w64-mingw32__m0-build-win98-compat              (force shim rebuild)
+out/.status-i686-w64-mingw32__m0-install-win98-compat-native     (copy new .a into native sysroot)
+out/.status-i686-w64-mingw32__m0-build-native-gdb                (relink with new shim)
+out/.status-i686-w64-mingw32__m0-build-native-busybox            (relink with new shim)
+out/.status-i686-w64-mingw32__m0-verify-extras-package           (re-verify)
+out/.status-i686-w64-mingw32__m0-package-{cross,native,extras}-toolset
+out/.status-i686-w64-mingw32__m0-write-{,native-,extras-}toolchain-manifest-v2
+```
 
 ---
 
