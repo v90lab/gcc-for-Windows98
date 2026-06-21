@@ -132,6 +132,7 @@ declare -a NATIVE_STEPS=(
   "verify-native-win98-capability|verifiers/verify-native-package.sh|Verify native toolset Win98 capability|builder"
   "install-win98-compat-native|install-win98-compat-native.sh|Mirror win98-compat shim into native toolset|builder"
   "install-win98-helpers-native|install-win98-helpers-native.sh|Install setenv.bat + check-versions.bat into native toolset|builder"
+  "strip-native-toolset|strip-native-toolset.sh|Strip debug info from native toolset binaries|builder"
   "package-native-toolset|package-native-toolset.sh|Package native toolset|builder"
   "write-native-toolchain-manifest-v2|write-toolchain-manifest.sh|Write native toolchain manifest|builder"
 )
@@ -153,6 +154,7 @@ declare -a EXTRAS_STEPS=(
   "build-sockdiag|build-sockdiag.sh|Build sockdiag.exe Win9x Winsock diagnostic|builder"
   "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder"
   "install-win98-helpers-extras|install-win98-helpers-extras.sh|Install setenv.bat + check-versions.bat into extras toolset|builder"
+  "strip-extras-toolset|strip-extras-toolset.sh|Strip debug info from extras toolset binaries|builder"
   "write-extras-build-info|write-extras-build-info.sh|Write BUILD.TXT into extras toolset root|builder"
   "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder"
   "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder"
