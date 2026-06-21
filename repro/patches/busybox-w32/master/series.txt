@@ -4,4 +4,7 @@
 0004-forkshell-named-mapping.patch
 0005-terminal-mode-force-console-api-on-win9x.patch
 0006-wait-for-child-skip-ctrl-handler-on-win9x.patch
+0007-bbdbg-log-wait-paths.patch
 0008-waitpid-handle-not-pid-on-win9x.patch
+0009-bbdbg-wansi-instrumentation.patch
+0010-winansi-vsnprintf-fix-win9x.patch

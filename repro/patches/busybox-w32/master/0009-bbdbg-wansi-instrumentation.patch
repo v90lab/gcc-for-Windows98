@@ -1,0 +1,215 @@
+From: gcc-for-windows98 patcher <patches@example.invalid>
+Subject: [PATCH] winansi: instrument write paths to trace raw-escape bug
+
+Round-4 fixed the sh hang.  Remaining Win98 symptoms: backspace
+prints raw `<-[1D` and `ls --color` emits raw color escapes.
+Both indicate the ANSI-to-Console-API translator in winansi.c is
+either bypassed or taking the wrong branch.  Add bbdbg_log()
+calls at every winansi entry point and at the ansi_emulate /
+ansi_emulate_write branch decisions, gated on BB_WANSI_LOG, so a
+round-5 BBLOG.TXT can pinpoint which fork is happening.  Also
+log the startup state (env vars, GetVersionEx platform/version,
+terminal_mode result) so we can confirm patch 0005's mode=0
+branch is firing on real Win9x and is_console() is returning
+true for stdout/stderr.
+
+Depends on patch 0007 for the bbdbg_log() helper.  Both 0007 and
+0009 should be removed from series.txt before shipping a stable
+release.
+
+---
+diff --git a/win32/winansi.c b/win32/winansi.c
+--- a/win32/winansi.c
++++ b/win32/winansi.c
+@@ -86,6 +86,82 @@
+ 	return cached;
+ }
+ 
++/* === BEGIN patch 0009: winansi write-path instrumentation ===
++ * Logs every winansi entry-point + the branch decision inside
++ * ansi_emulate{,_write} to C:\BBLOG.TXT (via bbdbg_log from patch
++ * 0007).  Gated on `BB_WANSI_LOG` env var so casual sh use stays
++ * quiet.  Recursion guard prevents bbdbg_log's own fprintf to
++ * BBLOG -> winansi_fprintf -> wansi_log -> bbdbg_log infinite loop
++ * when the helper itself reaches the macro-redirected stdio path.
++ */
++static int wansi_log_enabled(void)
++{
++	static int cached = -1;
++	if (cached == -1)
++		cached = getenv("BB_WANSI_LOG") != NULL;
++	return cached;
++}
++
++static int wansi_log_busy = 0;
++
++static void wansi_log(const char *func, int fd, const void *buf,
++				size_t count, const char *branch)
++{
++	int isatty_r, iscon, mode;
++	char preview[3*16 + 1];
++	const unsigned char *p = (const unsigned char *)buf;
++	size_t n, i;
++
++	if (!wansi_log_enabled() || wansi_log_busy)
++		return;
++	wansi_log_busy = 1;
++	isatty_r = (fd >= 0) ? mingw_isatty(fd) : 0;
++	iscon = (fd >= 0) ? is_console(fd) : 0;
++	mode = terminal_mode(FALSE);
++	preview[0] = '\0';
++	n = count < 16 ? count : 16;
++	for (i = 0; i < n; i++)
++		sprintf(preview + i*3, "%02x ", p[i]);
++	bbdbg_log("WANSI %s fd=%d cnt=%lu isatty=%d iscon=%d mode=%d "
++		"vtout=%d branch=%s hex=[%s]",
++		func, fd, (unsigned long)count, isatty_r, iscon, mode,
++		(mode & VT_OUTPUT) != 0, branch ? branch : "-", preview);
++	wansi_log_busy = 0;
++}
++
++static void wansi_log_startup_once(void)
++{
++	static int done = 0;
++	const char *tm, *skip;
++	OSVERSIONINFOA osvi;
++
++	if (done || !wansi_log_enabled())
++		return;
++	done = 1;
++	wansi_log_busy = 1;
++	tm = getenv("BB_TERMINAL_MODE");
++	skip = getenv("BB_SKIP_ANSI_EMULATION");
++	osvi.dwOSVersionInfoSize = sizeof(osvi);
++	if (!GetVersionExA(&osvi)) {
++		osvi.dwPlatformId = 0;
++		osvi.dwMajorVersion = 0;
++		osvi.dwMinorVersion = 0;
++		osvi.dwBuildNumber = 0;
++	}
++	bbdbg_log("WANSI startup BB_TERMINAL_MODE=%s BB_SKIP_ANSI_EMULATION=%s "
++		"platformId=%lu (is_win9x=%d) ver=%lu.%lu build=%lu "
++		"CONFIG_TERMINAL_MODE=%d cur_mode=%d",
++		tm ? tm : "(null)", skip ? skip : "(null)",
++		(unsigned long)osvi.dwPlatformId,
++		osvi.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS,
++		(unsigned long)osvi.dwMajorVersion,
++		(unsigned long)osvi.dwMinorVersion,
++		(unsigned long)osvi.dwBuildNumber,
++		CONFIG_TERMINAL_MODE, terminal_mode(FALSE));
++	wansi_log_busy = 0;
++}
++/* === END patch 0009 === */
++
+ #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+ #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+ #endif
+@@ -811,6 +887,8 @@
+ 	}
+ 
+ 	if ( *t == '\0' ) {
++		wansi_log("ansi_emulate", fileno(stream), s, strlen(s),
++			"early-out-no-special");
+ 		return fputs(s, stream) == EOF ? EOF : strlen(s);
+ 	}
+ 
+@@ -835,6 +913,8 @@
+ 		if (pos && !(terminal_mode(FALSE) & VT_OUTPUT)) {
+ 			size_t len = pos - str;
+ 
++			wansi_log("ansi_emulate", fileno(stream), str,
++				strlen(str), "esc-via-console-api");
+ 			if (len) {
+ 				if (conv_fwriteCon(stream, str, len) == EOF)
+ 					return EOF;
+@@ -858,6 +938,8 @@
+ 
+ 		} else {
+ 			size_t len = strlen(str);
++			wansi_log("ansi_emulate", fileno(stream), str, len,
++				pos ? "esc-via-vt-passthrough" : "tail-plain");
+ 			rv += len;
+ 			return conv_fwriteCon(stream, str, len) == EOF ? EOF : rv;
+ 		}
+@@ -920,6 +1002,8 @@
+ 	char *str;
+ 	int rv;
+ 
++	wansi_log_startup_once();
++	wansi_log("winansi_fwrite", fileno(stream), ptr, size * nmemb, NULL);
+ 	lsize = MIN(size, nmemb);
+ 	lmemb = MAX(size, nmemb);
+ 	if (lsize != 1 || !is_console(fileno(stream))) {
+@@ -943,6 +1027,8 @@
+ {
+ 	int ret;
+ 
++	wansi_log_startup_once();
++	wansi_log("winansi_fputs", fileno(stream), str, strlen(str), NULL);
+ 	if (!is_console(fileno(stream))) {
+ 		SetLastError(0);
+ 		if ((ret=fputs(str, stream)) == EOF)
+@@ -959,6 +1045,8 @@
+ 	char t = c;
+ 	char *s = &t;
+ 
++	wansi_log_startup_once();
++	wansi_log("winansi_fputc", fileno(stream), &t, 1, NULL);
+ 	if ((unsigned char)c <= 0x7f || !is_console(fileno(stream))) {
+ 		SetLastError(0);
+ 		if ((ret=fputc(c, stream)) == EOF)
+@@ -999,6 +1087,9 @@
+ 	char *buf = small_buf;
+ 	va_list cp;
+ 
++	wansi_log_startup_once();
++	wansi_log("winansi_vfprintf-entry", fileno(stream),
++		format, strlen(format), NULL);
+ 	if (!is_console(fileno(stream)))
+ 		goto abort;
+ 
+@@ -1016,6 +1107,8 @@
+ 	if (len == -1)
+ 		goto abort;
+ 
++	wansi_log("winansi_vfprintf-rendered", fileno(stream),
++		buf, (size_t)len, NULL);
+ 	rv = ansi_emulate(buf, stream);
+ 
+ 	if (buf != small_buf)
+@@ -1077,6 +1170,8 @@
+ 	 * characters output the string as-is.
+ 	 */
+ 	if ( !special || has_null ) {
++		wansi_log("ansi_emulate_write", fd, buf, count,
++			"early-out-no-special");
+ 		return write(fd, buf, count);
+ 	}
+ 
+@@ -1094,6 +1189,8 @@
+ 	while (*pos) {
+ 		pos = strchr(str, '\033');
+ 		if (pos && !(terminal_mode(FALSE) & VT_OUTPUT)) {
++			wansi_log("ansi_emulate_write", fd, str, strlen(str),
++				"esc-via-console-api");
+ 			len = pos - str;
+ 
+ 			if (len) {
+@@ -1113,6 +1210,8 @@
+ 			pos = str;
+ 		} else {
+ 			len = strlen(str);
++			wansi_log("ansi_emulate_write", fd, str, len,
++				pos ? "esc-via-vt-passthrough" : "tail-plain");
+ 			out_len = conv_writeCon(fd, str, len);
+ 			return (out_len == -1) ? -1 : rv+out_len;
+ 		}
+@@ -1122,6 +1221,8 @@
+ 
+ int FAST_FUNC winansi_write(int fd, const void *buf, size_t count)
+ {
++	wansi_log_startup_once();
++	wansi_log("winansi_write", fd, buf, count, NULL);
+ 	if (!is_console(fd)) {
+ 		int ret;
+ 
