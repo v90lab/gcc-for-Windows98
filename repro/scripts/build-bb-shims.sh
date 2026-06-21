@@ -54,6 +54,9 @@ declare -a SHIM_APPLETS=(
     md5sum sha1sum sha256sum sha512sum
     # Archives / compression
     tar gzip gunzip
+    # Networking (DNS resolution works after win98-compat getaddrinfo shim;
+    # socket() layer may have Win9x quirks — see sockdiag.exe)
+    wget
 )
 
 # Caller script (this file) is implicit input, so SHIM_APPLETS edits also
