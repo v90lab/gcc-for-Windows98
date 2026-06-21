@@ -18,10 +18,12 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
-skip_if_done install-win98-helpers-extras
-
 DEST_DIR="$ROOT_DIR/out/extras-toolset"
 SRC_BATCH_DIR="$ROOT_DIR/scripts/win98"
+
+invalidate_if_stale install-win98-helpers-extras \
+    "$SRC_BATCH_DIR/setenv.bat" "$SRC_BATCH_DIR/check-versions.bat"
+skip_if_done install-win98-helpers-extras
 
 require_dir "$DEST_DIR" "extras toolset not found at $DEST_DIR (run extras build steps first)"
 require_file "$SRC_BATCH_DIR/setenv.bat" "missing $SRC_BATCH_DIR/setenv.bat"

@@ -302,6 +302,44 @@ skip_if_done() {
   fi
 }
 
+# invalidate_if_stale <step_name> [<input_file>...]
+#
+# Remove the step's sentinel if the caller script or any listed input file
+# has been modified more recently than the sentinel. Call BEFORE skip_if_done
+# in any step whose inputs are stable in-tree files we edit directly (script
+# bodies, .c/.h sources, .json data files, .bat helpers). Without this, the
+# sentinel stays satisfied forever after the first run and source edits
+# silently don't propagate — see the install-pe-checker staleness postmortem
+# in win98-debug-history.md for the canonical instance.
+#
+# The caller's own script path (BASH_SOURCE[1]) is included implicitly so
+# editing the install/build script itself also invalidates. Missing input
+# files are ignored here (the script's own require_file checks will surface
+# them with a useful message).
+#
+# Intentionally NOT applied to build-* steps that pull from /work/src/
+# (upstream source trees) — those are driven by fetch-sources.sh and don't
+# follow the "edit in repo → expect rebuild" pattern.
+invalidate_if_stale() {
+  local step_name="$1"
+  shift
+  local sentinel
+  sentinel="$(status_file "$step_name")"
+  [[ -f "$sentinel" ]] || return 0
+  local caller="${BASH_SOURCE[1]:-}"
+  local inputs=()
+  [[ -n "$caller" && -f "$caller" ]] && inputs+=("$caller")
+  inputs+=("$@")
+  local input
+  for input in "${inputs[@]}"; do
+    if [[ -f "$input" && "$input" -nt "$sentinel" ]]; then
+      log "invalidating $step_name — input newer than sentinel: $input"
+      rm -f "$sentinel"
+      return 0
+    fi
+  done
+}
+
 # --- Directory Guards -------------------------------------------------------
 require_dir() {
   local dir="$1"

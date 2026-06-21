@@ -32,8 +32,6 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
-skip_if_done install-win98-compat-native
-
 require_step build-win98-compat "win98-compat shim must be built first (CROSS phase)"
 require_step build-native-mingw-w64 "native sysroot (i686-w64-mingw32/{include,lib}) must exist first"
 
@@ -41,6 +39,16 @@ CROSS_SYSROOT="$ROOT_DIR/out/toolchain/$TARGET"
 NATIVE_SYSROOT="$ROOT_DIR/out/native-toolset/$TARGET"
 SHIM_SRC_DIR="$ROOT_DIR/win98-compat"
 SHARE_DIR="$ROOT_DIR/out/native-toolset/share/win98-compat"
+
+# Invalidate on either the cross-built artifact (changes when build-win98-compat
+# re-runs) or the in-tree source (changes when we edit the shim — defensive,
+# normally caught by the build-win98-compat invalidation first).
+invalidate_if_stale install-win98-compat-native \
+    "$CROSS_SYSROOT/lib/libwin98compat.a" \
+    "$CROSS_SYSROOT/include/win98_compat.h" \
+    "$SHIM_SRC_DIR/src/win98_compat.c" \
+    "$SHIM_SRC_DIR/include/win98_compat.h"
+skip_if_done install-win98-compat-native
 
 require_file "$CROSS_SYSROOT/lib/libwin98compat.a" "missing libwin98compat.a in cross sysroot (run build-win98-compat first)"
 require_file "$CROSS_SYSROOT/include/win98_compat.h" "missing win98_compat.h in cross sysroot (run build-win98-compat first)"

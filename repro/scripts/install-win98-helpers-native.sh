@@ -25,10 +25,12 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
-skip_if_done install-win98-helpers-native
-
 DEST_DIR="$ROOT_DIR/out/native-toolset"
 SRC_BATCH_DIR="$ROOT_DIR/scripts/win98"
+
+invalidate_if_stale install-win98-helpers-native \
+    "$SRC_BATCH_DIR/setenv.bat" "$SRC_BATCH_DIR/check-versions.bat"
+skip_if_done install-win98-helpers-native
 
 require_dir "$DEST_DIR" "native toolset not found at $DEST_DIR (run native build steps first)"
 require_file "$SRC_BATCH_DIR/setenv.bat" "missing $SRC_BATCH_DIR/setenv.bat"

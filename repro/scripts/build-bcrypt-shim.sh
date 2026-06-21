@@ -23,6 +23,7 @@ BUILD_DIR="$REPO_ROOT/build/bcrypt-shim"
 INSTALL_DIR="$REPO_ROOT/out/extras-toolset/bin"
 CROSS_BIN_DIR="$REPO_ROOT/out/toolchain/bin"
 
+invalidate_if_stale build-bcrypt-shim "$SHIM_SRC"
 skip_if_done build-bcrypt-shim
 
 require_file "$SHIM_SRC" "missing bcrypt shim source at $SHIM_SRC"

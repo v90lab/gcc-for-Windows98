@@ -56,6 +56,9 @@ declare -a SHIM_APPLETS=(
     tar gzip gunzip
 )
 
+# Caller script (this file) is implicit input, so SHIM_APPLETS edits also
+# invalidate. SHIM_SRC explicit so edits to bb-shim.c invalidate too.
+invalidate_if_stale build-bb-shims "$SHIM_SRC"
 skip_if_done build-bb-shims
 
 require_file "$SHIM_SRC" "missing bb-shim source at $SHIM_SRC"

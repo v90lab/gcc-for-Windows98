@@ -28,11 +28,12 @@ set -euo pipefail
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
-skip_if_done install-pe-checker
-
 SRC_SCRIPT="$ROOT_DIR/scripts/verifiers/pe-win98-check.sh"
 SRC_ALLOWLIST="$ROOT_DIR/data/win98se-api-allowlist.json"
 SRC_DENYLIST="$ROOT_DIR/data/win98-behavioral-denylist.json"
+
+invalidate_if_stale install-pe-checker "$SRC_SCRIPT" "$SRC_ALLOWLIST" "$SRC_DENYLIST"
+skip_if_done install-pe-checker
 
 require_file "$SRC_SCRIPT" "missing PE checker at $SRC_SCRIPT"
 require_file "$SRC_ALLOWLIST" "missing allowlist at $SRC_ALLOWLIST"

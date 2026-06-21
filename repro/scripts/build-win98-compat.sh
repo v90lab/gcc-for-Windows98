@@ -47,6 +47,7 @@ SYSROOT_DIR="$REPO_ROOT/out/toolchain/$TARGET"
 INSTALL_INC_DIR="$SYSROOT_DIR/include"
 INSTALL_LIB_DIR="$SYSROOT_DIR/lib"
 
+invalidate_if_stale build-win98-compat "$SHIM_SRC" "$SHIM_HDR"
 skip_if_done build-win98-compat
 
 require_file "$SHIM_SRC" "missing win98-compat source at $SHIM_SRC"
