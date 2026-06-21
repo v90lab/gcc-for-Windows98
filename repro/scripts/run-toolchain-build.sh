@@ -107,6 +107,7 @@ declare -a CROSS_STEPS=(
   "fetch-sources|fetch-sources.sh|Fetch source trees|builder"
   "generate-patches|generate-patches.sh|Generate versioned patch series|builder"
   "prepare-mingw-w64|prepare-mingw-w64.sh|Prepare mingw-w64 sources|builder"
+  "prepare-binutils-gdb|prepare-binutils-gdb.sh|Prepare binutils-gdb sources (Win9x gdb_select polling patch)|builder"
   "build-binutils|build-cross-binutils.sh|Build cross binutils|builder"
   "build-mingw-w64|build-cross-mingw-w64.sh|Build mingw-w64 headers & CRT|builder"
   "prepare-gcc|prepare-gcc.sh|Prepare GCC sources|builder"
@@ -138,6 +139,7 @@ declare -a NATIVE_STEPS=(
 # EXTRAS_STEPS: Win98-hosted user tools packaged as gcc-win98-native-toolchain-extras.zip.
 # Ordered cheapest → heaviest so a build can fail fast on simpler tools.
 declare -a EXTRAS_STEPS=(
+  "prepare-busybox-w32|prepare-busybox-w32.sh|Prepare busybox-w32 sources (Win9x forkshell + lineedit + spawn-path patches)|builder"
   "build-native-busybox|build-native-busybox.sh|Build busybox-w32|builder"
   "build-native-ctags|build-native-ctags.sh|Build universal-ctags|builder"
   "build-native-make|build-native-make.sh|Build GNU make|builder"
@@ -146,8 +148,11 @@ declare -a EXTRAS_STEPS=(
   "build-native-gdb|build-native-gdb.sh|Build gdb|builder"
   "build-native-muon|build-native-muon.sh|Build muon|builder"
   "build-bcrypt-shim|build-bcrypt-shim.sh|Build bcrypt.dll shim for gdb|builder"
+  "build-bb-shims|build-bb-shims.sh|Build + install bb-shim applet copies|builder"
+  "build-consdiag|build-consdiag.sh|Build consdiag.exe Win9x stdio diagnostic|builder"
   "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder"
   "install-win98-helpers-extras|install-win98-helpers-extras.sh|Install setenv.bat + check-versions.bat into extras toolset|builder"
+  "write-extras-build-info|write-extras-build-info.sh|Write BUILD.TXT into extras toolset root|builder"
   "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder"
   "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder"
 )

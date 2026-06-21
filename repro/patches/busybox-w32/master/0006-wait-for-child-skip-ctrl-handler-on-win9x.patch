@@ -1,0 +1,46 @@
+diff --git a/win32/process.c b/win32/process.c
+--- a/win32/process.c
++++ b/win32/process.c
+@@ -8,6 +8,20 @@
+ # define ERROR_ELEVATION_REQUIRED __MSABI_LONG(740)
+ #endif
+ 
++/* Win9x detection -- same logic as winansi.c::is_win9x but available
++ * in process.c.  Cached, cheap on repeat calls. */
++static int is_win9x_proc(void)
++{
++	static int cached = -1;
++	if (cached == -1) {
++		OSVERSIONINFOA osvi;
++		osvi.dwOSVersionInfoSize = sizeof(osvi);
++		cached = GetVersionExA(&osvi) &&
++		         osvi.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS;
++	}
++	return cached;
++}
++
+ pid_t FAST_FUNC waitpid(pid_t pid, int *status, int options)
+ #if ENABLE_TIME
+ {
+@@ -507,8 +521,19 @@
+ 	if (getppid() == 1)
+ 		exit(0);
+ 
+-	kill_child_ctrl_handler(GetProcessId(child));
+-	SetConsoleCtrlHandler(kill_child_ctrl_handler, TRUE);
++	/* Win9x: skip SetConsoleCtrlHandler + GetProcessId-based ctrl handler
++	 * setup.  GetProcessId is a Vista+ API (our win98-compat shim returns
++	 * 0 for non-current-process handles), and SetConsoleCtrlHandler on
++	 * Win9x has been observed to cause the parent's wait on child exit
++	 * notification to never return -- the child does terminate, but
++	 * neither this WaitForSingleObject nor the parent shell's
++	 * WaitForMultipleObjects ever fires.  Trade: Ctrl+C during a foreground
++	 * command on Win9x won't politely propagate to the child; it kills the
++	 * whole process group.  Acceptable for now. */
++	if (!is_win9x_proc()) {
++		kill_child_ctrl_handler(GetProcessId(child));
++		SetConsoleCtrlHandler(kill_child_ctrl_handler, TRUE);
++	}
+ 	WaitForSingleObject(child, INFINITE);
+ 	GetExitCodeProcess(child, &code);
+ 	// We don't need the wait status, but get it anyway so the error

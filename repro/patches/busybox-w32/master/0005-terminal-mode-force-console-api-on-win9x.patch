@@ -1,0 +1,41 @@
+diff --git a/win32/winansi.c b/win32/winansi.c
+index e4de11e..d72a913 100644
+--- a/win32/winansi.c
++++ b/win32/winansi.c
+@@ -71,6 +71,21 @@ static int is_wine(void)
+ 	return INIT_PROC_ADDR(ntdll.dll, wine_get_version) != NULL;
+ }
+ 
++/* Win9x detection.  GetVersionEx is documented as returning wrong values
++ * on Win 8.1+, but the dwPlatformId field is still reliable across all
++ * Windows versions; we only care about Win9x vs NT-class. */
++static int is_win9x(void)
++{
++	static int cached = -1;
++	if (cached == -1) {
++		OSVERSIONINFOA osvi;
++		osvi.dwOSVersionInfoSize = sizeof(osvi);
++		cached = GetVersionExA(&osvi) &&
++			 osvi.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS;
++	}
++	return cached;
++}
++
+ #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+ #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+ #endif
+@@ -111,7 +126,13 @@ int FAST_FUNC terminal_mode(int reset)
+ 			else if (mode != 1)
+ 				mode = 0;
+ 		} else {
+-			mode = (getenv("CONEMUPID") != NULL || is_wine()) ? 0 :
++			/* On Win9x, force Console API emulation (mode 0).  Win9x SetConsoleMode
++			 * silently accepts unknown flag bits without validating, so the usual
++			 * "probe VirtualTerminalProcessing, demote on failure" dance never
++			 * downgrades to a non-VT mode.  Without this branch, mode stays at
++			 * CONFIG_TERMINAL_MODE=5 and ansi_emulate passes ESC sequences
++			 * straight to the screen, where command.com prints them literally. */
++			mode = (getenv("CONEMUPID") != NULL || is_wine() || is_win9x()) ? 0 :
+ 						CONFIG_TERMINAL_MODE;
+ 		}
+ 

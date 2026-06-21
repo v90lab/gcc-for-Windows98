@@ -1,0 +1,183 @@
+--- a/gdb/mingw-hdep.c
++++ b/gdb/mingw-hdep.c
+@@ -39,6 +39,167 @@
+   return xstrdup (argv0);
+ }
+ 
++/* Returns nonzero iff the host is a Win9x kernel (95/98/ME).  Cached
++   after the first call.  Win9x's WaitForMultipleObjects rejects
++   console input handles as wait objects (an NT 4+ feature), so the
++   gdb_select code below has to take a polling fallback path on
++   these hosts -- see gdb_select_win9x.  Without this fallback the
++   event loop hits WAIT_FAILED, prints "select: No Error." (errno is
++   never set, so strerror(0) renders unhelpfully), and spins
++   forever.  */
++
++static int
++gdb_select_is_win9x (void)
++{
++  static int cached = -1;
++
++  if (cached == -1)
++    {
++      OSVERSIONINFO osvi;
++      memset (&osvi, 0, sizeof (osvi));
++      osvi.dwOSVersionInfoSize = sizeof (osvi);
++      if (GetVersionEx (&osvi)
++	  && osvi.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS)
++	cached = 1;
++      else
++	cached = 0;
++    }
++
++  return cached;
++}
++
++/* Polling fallback used by gdb_select on Win9x in place of
++   WaitForMultipleObjects.  Loops at WIN98_POLL_INTERVAL_MS ticks;
++   per registered read fd it uses PeekConsoleInput when the
++   underlying handle is a console input handle (draining
++   non-keypress noise so the input queue doesn't accumulate junk
++   readline can't consume), and WaitForSingleObject with timeout=0
++   otherwise.  Bits in EXCEPTFDS are cleared on return -- exception
++   fds never fire on the console handles gdb actually exercises,
++   matching the never_handle behavior of the NT path.  */
++
++#define WIN98_POLL_INTERVAL_MS 20
++
++static int
++gdb_select_win9x (int n, fd_set *readfds, fd_set *writefds,
++		  fd_set *exceptfds, struct timeval *timeout)
++{
++  HANDLE handles[MAXIMUM_WAIT_OBJECTS];
++  int handle_fds[MAXIMUM_WAIT_OBJECTS];
++  size_t num_handles = 0;
++  struct serial *scbs[MAXIMUM_WAIT_OBJECTS];
++  size_t num_scbs = 0;
++  fd_set ready_read;
++  DWORD remaining_ms;
++  int num_ready = 0;
++  int fd;
++  size_t i;
++
++  FD_ZERO (&ready_read);
++
++  for (fd = 0; fd < n; ++fd)
++    {
++      HANDLE read = NULL, except_h = NULL;
++      struct serial *scb;
++
++      gdb_assert (!writefds || !FD_ISSET (fd, writefds));
++
++      if ((!readfds || !FD_ISSET (fd, readfds))
++	  && (!exceptfds || !FD_ISSET (fd, exceptfds)))
++	continue;
++
++      scb = serial_for_fd (fd);
++      if (scb)
++	{
++	  serial_wait_handle (scb, &read, &except_h);
++	  scbs[num_scbs++] = scb;
++	}
++      if (read == NULL)
++	read = (HANDLE) _get_osfhandle (fd);
++
++      if (readfds && FD_ISSET (fd, readfds))
++	{
++	  gdb_assert (num_handles < MAXIMUM_WAIT_OBJECTS);
++	  handles[num_handles] = read;
++	  handle_fds[num_handles] = fd;
++	  num_handles++;
++	}
++    }
++
++  if (timeout != NULL)
++    remaining_ms
++      = (DWORD) (timeout->tv_sec * 1000 + timeout->tv_usec / 1000);
++  else
++    remaining_ms = INFINITE;
++
++  while (1)
++    {
++      DWORD slept;
++
++      for (i = 0; i < num_handles; ++i)
++	{
++	  HANDLE h = handles[i];
++	  int fdh = handle_fds[i];
++	  DWORD pending = 0;
++
++	  if (FD_ISSET (fdh, &ready_read))
++	    continue;
++
++	  if (GetNumberOfConsoleInputEvents (h, &pending))
++	    {
++	      INPUT_RECORD ir;
++	      DWORD got;
++
++	      while (pending > 0
++		     && PeekConsoleInput (h, &ir, 1, &got)
++		     && got == 1)
++		{
++		  if (ir.EventType == KEY_EVENT
++		      && ir.Event.KeyEvent.bKeyDown
++		      && ir.Event.KeyEvent.uChar.AsciiChar != 0)
++		    {
++		      FD_SET (fdh, &ready_read);
++		      num_ready++;
++		      break;
++		    }
++		  ReadConsoleInput (h, &ir, 1, &got);
++		  if (!GetNumberOfConsoleInputEvents (h, &pending))
++		    break;
++		}
++	    }
++	  else if (WaitForSingleObject (h, 0) == WAIT_OBJECT_0)
++	    {
++	      FD_SET (fdh, &ready_read);
++	      num_ready++;
++	    }
++	}
++
++      if (num_ready > 0)
++	break;
++      if (remaining_ms == 0)
++	break;
++
++      slept = (remaining_ms == INFINITE
++	       || remaining_ms > WIN98_POLL_INTERVAL_MS)
++		? WIN98_POLL_INTERVAL_MS : remaining_ms;
++      Sleep (slept);
++      if (remaining_ms != INFINITE)
++	remaining_ms -= slept;
++    }
++
++  for (i = 0; i < num_scbs; ++i)
++    serial_done_wait_handle (scbs[i]);
++
++  if (readfds)
++    for (fd = 0; fd < n; ++fd)
++      if (FD_ISSET (fd, readfds) && !FD_ISSET (fd, &ready_read))
++	FD_CLR (fd, readfds);
++  if (exceptfds)
++    FD_ZERO (exceptfds);
++
++  return num_ready;
++}
++
+ /* Wrapper for select.  On Windows systems, where the select interface
+    only works for sockets, this uses the GDB serial abstraction to
+    handle sockets, consoles, pipes, and serial ports.
+@@ -75,6 +236,12 @@
+       return 0;
+     }
+ 
++  /* Win9x's WaitForMultipleObjects rejects console input handles,
++     leaving the event loop spinning on WAIT_FAILED.  Dispatch to the
++     polling fallback above.  */
++  if (gdb_select_is_win9x ())
++    return gdb_select_win9x (n, readfds, writefds, exceptfds, timeout);
++
+   num_ready = 0;
+   num_handles = 0;
+   num_scbs = 0;

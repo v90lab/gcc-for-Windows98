@@ -27,9 +27,13 @@ require_dir "$DEST_DIR" "extras toolset not found at $DEST_DIR (run extras build
 require_file "$SRC_BATCH_DIR/setenv.bat" "missing $SRC_BATCH_DIR/setenv.bat"
 require_file "$SRC_BATCH_DIR/check-versions.bat" "missing $SRC_BATCH_DIR/check-versions.bat"
 
-log "installing Win98 helper batch files into $DEST_DIR"
-install -m 0644 "$SRC_BATCH_DIR/setenv.bat" "$DEST_DIR/setenv.bat"
-install -m 0644 "$SRC_BATCH_DIR/check-versions.bat" "$DEST_DIR/check-versions.bat"
+log "installing Win98 helper batch files into $DEST_DIR (LF -> CRLF)"
+# Source files are LF for editor friendliness; convert to CRLF on install so
+# the shipped .bat files use the line ending command.com expects.
+for bat in setenv.bat check-versions.bat; do
+    sed 's/\r$//; s/$/\r/' "$SRC_BATCH_DIR/$bat" > "$DEST_DIR/$bat"
+    chmod 0644 "$DEST_DIR/$bat"
+done
 
 mark_done install-win98-helpers-extras
 log "Win98 helper batch files installed"

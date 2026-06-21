@@ -518,6 +518,9 @@ builder_script() {
   full_path="$(in_container_path "/work/scripts/$script_rel")"
   docker compose -f "$PROJECT_DIR/docker-compose.yml" exec -T toolchain-builder \
     env JOBS="$JOBS" TARGET="$TARGET" MATRIX="$MATRIX" GENERATE_PATCHES="${GENERATE_PATCHES:-0}" \
+        BUILD_GIT_REV="${BUILD_GIT_REV:-}" \
+        BUILD_GIT_REV_FULL="${BUILD_GIT_REV_FULL:-}" \
+        BUILD_GIT_DIRTY="${BUILD_GIT_DIRTY:-}" \
     bash "$full_path" "$@"
 }
 

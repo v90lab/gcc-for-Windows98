@@ -137,6 +137,22 @@ docker compose -f "$SCRIPT_DIR/docker-compose.yml" build $NO_CACHE --pull toolch
 echo "[*] Starting compose services..."
 docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d toolchain-builder
 
+# --- Capture git info for BUILD.TXT (best-effort, read on host) -------------
+# write-extras-build-info.sh runs inside the container where .git isn't
+# accessible (we only bind-mount repro/, not the repo root).  Pre-read here
+# on the host so it can be passed through as env vars.
+HOST_REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_GIT_REV="$(git -C "$HOST_REPO_ROOT" rev-parse --short=10 HEAD 2>/dev/null || echo unknown)"
+BUILD_GIT_REV_FULL="$(git -C "$HOST_REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+if git -C "$HOST_REPO_ROOT" diff --quiet 2>/dev/null && \
+   git -C "$HOST_REPO_ROOT" diff --cached --quiet 2>/dev/null; then
+  BUILD_GIT_DIRTY=""
+else
+  _changed="$(git -C "$HOST_REPO_ROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  BUILD_GIT_DIRTY=" (dirty: ${_changed} files changed)"
+fi
+export BUILD_GIT_REV BUILD_GIT_REV_FULL BUILD_GIT_DIRTY
+
 # --- Run full pipeline on host (run-toolchain-build uses docker compose exec) ----
 echo "[*] Running build pipeline via scripts/run-toolchain-build.sh..."
 EXTRAS_FLAG=""
@@ -150,12 +166,14 @@ if [[ "$GENERATE_PATCHES" == "1" ]]; then
   (
     cd "$SCRIPT_DIR"
     JOBS="$JOBS" MATRIX="$MATRIX" GENERATE_PATCHES="$GENERATE_PATCHES" BUILD_EXTRAS="$BUILD_EXTRAS" \
+      BUILD_GIT_REV="$BUILD_GIT_REV" BUILD_GIT_REV_FULL="$BUILD_GIT_REV_FULL" BUILD_GIT_DIRTY="$BUILD_GIT_DIRTY" \
       ./scripts/run-toolchain-build.sh --jobs "$JOBS" --generate-patches "$EXTRAS_FLAG"
   )
 else
   (
     cd "$SCRIPT_DIR"
     JOBS="$JOBS" MATRIX="$MATRIX" GENERATE_PATCHES="$GENERATE_PATCHES" BUILD_EXTRAS="$BUILD_EXTRAS" \
+      BUILD_GIT_REV="$BUILD_GIT_REV" BUILD_GIT_REV_FULL="$BUILD_GIT_REV_FULL" BUILD_GIT_DIRTY="$BUILD_GIT_DIRTY" \
       ./scripts/run-toolchain-build.sh --jobs "$JOBS" "$EXTRAS_FLAG"
   )
 fi

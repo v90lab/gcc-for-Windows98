@@ -1,0 +1,113 @@
+diff --git a/include/mingw.h b/include/mingw.h
+--- a/include/mingw.h
++++ b/include/mingw.h
+@@ -511,6 +511,12 @@
+ #define getegid getuid
+ int getgroups(int n, gid_t *groups) FAST_FUNC;
+ pid_t getppid(void) FAST_FUNC;
++
++/* Debug log helper -- writes to C:\BBLOG.TXT in append mode.  Used by
++ * patches 0007 et seq to trace the wait_for_child / waitpid_child path
++ * looking for where Win98 hangs on child-exit notification.  Cheap; no
++ * env-var gate.  Remove the patch when the underlying issue is fixed. */
++void bbdbg_log(const char *fmt, ...) FAST_FUNC __attribute__((format(printf, 1, 2)));
+ NOIMPL(getsid,pid_t pid UNUSED_PARAM);
+ int getlogin_r(char *buf, size_t len) FAST_FUNC;
+ int fcntl(int fd, int cmd, ...);
+diff --git a/win32/mingw.c b/win32/mingw.c
+--- a/win32/mingw.c
++++ b/win32/mingw.c
+@@ -1,4 +1,24 @@
+ #include "libbb.h"
++#include <stdarg.h>
++
++/* See declaration in include/mingw.h.  Opens C:\BBLOG.TXT in append mode,
++ * writes one formatted line with a [pid=N] prefix, fcloses.  Silent
++ * no-op if the file can't be opened (read-only media, permission denied,
++ * etc.) so debugging never breaks the build. */
++void FAST_FUNC bbdbg_log(const char *fmt, ...)
++{
++	FILE *log = fopen("C:\\BBLOG.TXT", "a");
++	va_list ap;
++	if (!log)
++		return;
++	fprintf(log, "[pid=%lu] ", (unsigned long)GetCurrentProcessId());
++	va_start(ap, fmt);
++	vfprintf(log, fmt, ap);
++	va_end(ap);
++	fputc('\n', log);
++	fclose(log);
++}
++
+ #include <userenv.h>
+ #include "lazyload.h"
+ #if ENABLE_FEATURE_EXTRA_FILE_DATA
+diff --git a/win32/process.c b/win32/process.c
+--- a/win32/process.c
++++ b/win32/process.c
+@@ -518,8 +518,13 @@
+ 	DWORD code;
+ 	int status;
+ 
+-	if (getppid() == 1)
++	bbdbg_log("wait_for_child ENTRY child=0x%p cmd=%s",
++	          (void *)child, cmd ? cmd : "(null)");
++
++	if (getppid() == 1) {
++		bbdbg_log("wait_for_child getppid()==1, exit(0) early");
+ 		exit(0);
++	}
+ 
+ 	/* Win9x: skip SetConsoleCtrlHandler + GetProcessId-based ctrl handler
+ 	 * setup.  GetProcessId is a Vista+ API (our win98-compat shim returns
+@@ -534,14 +539,18 @@
+ 		kill_child_ctrl_handler(GetProcessId(child));
+ 		SetConsoleCtrlHandler(kill_child_ctrl_handler, TRUE);
+ 	}
++	bbdbg_log("wait_for_child PRE-WaitForSingleObject child=0x%p", (void *)child);
+ 	WaitForSingleObject(child, INFINITE);
++	bbdbg_log("wait_for_child POST-WaitForSingleObject child=0x%p", (void *)child);
+ 	GetExitCodeProcess(child, &code);
++	bbdbg_log("wait_for_child GetExitCodeProcess code=%lu", (unsigned long)code);
+ 	// We don't need the wait status, but get it anyway so the error
+ 	// message can include the command.  In such cases we pass the
+ 	// exit status to exit() so our caller won't repeat the message.
+ 	status = exit_code_to_wait_status_cmd(code, cmd);
+ 	if (!WIFSIGNALED(status) && code > 0xff)
+ 		code = WEXITSTATUS(status);
++	bbdbg_log("wait_for_child PRE-exit code=%d", (int)code);
+ 	exit((int)code);
+ }
+ 
+diff --git a/shell/ash.c b/shell/ash.c
+--- a/shell/ash.c
++++ b/shell/ash.c
+@@ -4925,9 +4925,17 @@
+ 		}
+ 	}
+ 
++	bbdbg_log("waitpid_child ENTRY pid_nr=%d blocking=%lu",
++	          pid_nr, (unsigned long)blocking);
+ 	if (pid_nr) {
++		int __i;
++		for (__i = 0; __i < pid_nr; __i++)
++			bbdbg_log("waitpid_child proclist[%d]=0x%p", __i, (void *)proclist[__i]);
+ 		do {
++			bbdbg_log("waitpid_child PRE-WaitForMultipleObjects pid_nr=%d blocking=%lu",
++			          pid_nr, (unsigned long)blocking);
+ 			idx = WaitForMultipleObjects(pid_nr, proclist, FALSE, blocking);
++			bbdbg_log("waitpid_child POST-WaitForMultipleObjects idx=%lu", (unsigned long)idx);
+ 			if (idx < pid_nr) {
+ 				GetExitCodeProcess(proclist[idx], &win_status);
+ 				*status = exit_code_to_wait_status(win_status);
+@@ -17054,7 +17062,10 @@
+ #if JOBS_WIN32
+ 	new->jpnull = jp == NULL;
+ #endif
++	bbdbg_log("spawn_forkshell PRE-mingw_spawn_applet argv0=%s map=%s",
++	          argv[0] ? argv[0] : "(null)", map_name);
+ 	ret = mingw_spawn_applet(P_NOWAIT, (char *const *)argv, NULL);
++	bbdbg_log("spawn_forkshell POST-mingw_spawn_applet ret=0x%p", (void *)ret);
+ 	CloseHandle(new->hMapFile);
+ 	UnmapViewOfFile(new);
+ 	if (ret == -1) {

@@ -1,0 +1,98 @@
+diff --git a/shell/ash.c b/shell/ash.c
+index adde31c..25f46a8 100644
+--- a/shell/ash.c
++++ b/shell/ash.c
+@@ -452,7 +452,7 @@ enum {
+ 	FS_SHELLEXEC
+ };
+ 
+-static struct forkshell* forkshell_prepare(struct forkshell *fs);
++static struct forkshell* forkshell_prepare(struct forkshell *fs, char *map_name_out);
+ static void forkshell_init(const char *idstr);
+ static void *sticky_mem_start, *sticky_mem_end;
+ static void sticky_free(void *p);
+@@ -17041,11 +17041,11 @@ static void
+ spawn_forkshell(struct forkshell *fs, struct job *jp, union node *n, int mode)
+ {
+ 	struct forkshell *new;
+-	char buf[32];
+-	const char *argv[] = { "sh", "--fs", NULL, NULL };
++	char map_name[64];
++	const char *argv[] = { "sh", "--fs", map_name, NULL };
+ 	intptr_t ret;
+ 
+-	new = forkshell_prepare(fs);
++	new = forkshell_prepare(fs, map_name);
+ 	if (new == NULL)
+ 		goto fail;
+ 
+@@ -17054,8 +17054,6 @@ spawn_forkshell(struct forkshell *fs, struct job *jp, union node *n, int mode)
+ #if JOBS_WIN32
+ 	new->jpnull = jp == NULL;
+ #endif
+-	sprintf(buf, "%p", new->hMapFile);
+-	argv[2] = buf;
+ 	ret = mingw_spawn_applet(P_NOWAIT, (char *const *)argv, NULL);
+ 	CloseHandle(new->hMapFile);
+ 	UnmapViewOfFile(new);
+@@ -17760,13 +17758,14 @@ forkshell_print(FILE *fp0, struct forkshell *fs, const char **notes)
+ #endif
+ 
+ static struct forkshell *
+-forkshell_prepare(struct forkshell *fs)
++forkshell_prepare(struct forkshell *fs, char *map_name_out)
+ {
+ 	struct forkshell *new;
+ 	struct datasize ds;
+ 	int size, relocatesize, bitmapsize;
+ 	HANDLE h;
+ 	SECURITY_ATTRIBUTES sa;
++	static unsigned fs_counter = 0;
+ #if FORKSHELL_DEBUG
+ 	char *relocate;
+ 	char name[64];
+@@ -17785,8 +17784,18 @@ forkshell_prepare(struct forkshell *fs)
+ 	sa.nLength = sizeof(sa);
+ 	sa.lpSecurityDescriptor = NULL;
+ 	sa.bInheritHandle = TRUE;
++	/* Use a NAMED file mapping.  On Win9x, unnamed mapping handles aren't
++	 * shareable across CreateProcess by raw HANDLE value (the value is
++	 * per-process and not inherited at the same numeric slot), so the
++	 * child cannot MapViewOfFile the parent's handle even though it was
++	 * created inheritable.  A named mapping lives in a cross-process
++	 * namespace and the child opens it by name.  bInheritHandle=TRUE
++	 * still gives refcount keepalive across the parent's CloseHandle on
++	 * NT (via inheritance through spawnve's CreateProcess call). */
++	sprintf(map_name_out, "busybox-fs-%lu-%u",
++		(unsigned long)GetCurrentProcessId(), ++fs_counter);
+ 	h = CreateFileMapping(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, 0,
+-			size+bitmapsize, NULL);
++			size+bitmapsize, map_name_out);
+ 
+ 	/* Initialise pointers */
+ 	new = (struct forkshell *)MapViewOfFile(h, FILE_MAP_WRITE, 0,0, 0);
+@@ -17849,17 +17858,19 @@ static void
+ forkshell_init(const char *idstr)
+ {
+ 	struct forkshell *fs;
+-	void *map_handle;
+ 	HANDLE h;
+ 	int i;
+ 	char **ptr;
+ 	char *lrelocate;
+ 
+-	if (sscanf(idstr, "%p", &map_handle) != 1)
++	/* idstr is the named-mapping name produced by forkshell_prepare in
++	 * the parent.  OpenFileMapping by name works on both NT and Win9x;
++	 * the previous mechanism (handle value passed as hex through argv)
++	 * is NT-only because Win9x HANDLE values are not cross-process. */
++	h = OpenFileMapping(FILE_MAP_WRITE, FALSE, idstr);
++	if (!h)
+ 		return;
+-
+-	h = (HANDLE)map_handle;
+-	fs = (struct forkshell *)MapViewOfFile(h, FILE_MAP_WRITE, 0,0, 0);
++	fs = (struct forkshell *)MapViewOfFile(h, FILE_MAP_WRITE, 0, 0, 0);
+ 	if (!fs)
+ 		return;
+ 

@@ -1,0 +1,22 @@
+diff --git a/win32/process.c b/win32/process.c
+index d8f313f..a1c3199 100644
+--- a/win32/process.c
++++ b/win32/process.c
+@@ -213,7 +213,16 @@ spawnveq(int mode, const char *path, char *const *argv, char *const *env)
+ 	}
+ 
+ 	errno = 0;
+-	ret = spawnve(mode, new_path ? new_path : path, new_argv, env);
++	{
++		/* Win9x CreateProcess (and msvcrt stat()) reject forward slashes in
++		 * the executable path; NT accepts both.  bs_to_slash in
++		 * get_busybox_exec_path leaves the cached path forward-slashed.
++		 * Backslash-form it here so we work on both kernels. */
++		char *bs_path = xstrdup(new_path ? new_path : path);
++		slash_to_bs(bs_path);
++		ret = spawnve(mode, bs_path, new_argv, env);
++		free(bs_path);
++	}
+ 	if (errno == EINVAL && len > bb_arg_max())
+ 		errno = E2BIG;
+ 

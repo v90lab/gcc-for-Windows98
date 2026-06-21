@@ -123,6 +123,46 @@ pe-win98-check`).
 - Added a tiny `bcrypt.dll` shim needed by `gdb.exe`. `libstdc++` 11's `std::random_device` imports
   `bcrypt!BCryptGenRandom`, which Win98 doesn't have; the shim redirects it to use `rand()` seeded
   from `GetTickCount` (this is not cryptographiclly secure, but gdb only uses it as a default seed).
+- Patched gdb's `gdb_select` to add a polling fallback on Win9x hosts. Win98's
+  `WaitForMultipleObjects` rejects console input handles as wait objects (an NT-4+ feature), so
+  the upstream gdb event loop hits `WAIT_FAILED` on the interactive prompt and spins forever
+  printing `select: No Error.`. The patch detects Win9x at startup via `GetVersionEx` and, when
+  detected, replaces the `WaitForMultipleObjects` call with a 20-ms polling loop that uses
+  `PeekConsoleInput` for console handles and `WaitForSingleObject(timeout=0)` for everything
+  else. NT-class hosts still take the original code path.
+- Patched busybox-w32's `ash` forkshell mechanism for Win9x. Each command typed at the busybox
+  `sh` prompt (`ls`, `cp`, ...) goes through a fork-via-shared-memory trick: parent creates an
+  unnamed `CreateFileMapping`, serializes shell state into it, sprintf's the raw HANDLE value
+  into argv, spawns busybox-as-sh again with `--fs <hex-handle>`, child does
+  `MapViewOfFile((HANDLE)hex)`. Works on NT because handle inheritance preserves the numeric
+  value across `CreateProcess`. On Win9x, HANDLE values are per-process — every command failed
+  with `sh: unable to spawn shell`. The patch switches to a *named* mapping
+  (`busybox-fs-<pid>-<counter>`); the child does `OpenFileMapping(name)` on both kernels.
+- Patched busybox-w32's `terminal_mode()` auto-detect for Win9x. The upstream code probes
+  `ENABLE_VIRTUAL_TERMINAL_PROCESSING` via `SetConsoleMode` and demotes to Console API
+  emulation if the flag is rejected. Win9x's `SetConsoleMode` doesn't validate unknown flag
+  bits — it accepts the modern-Windows-only flag silently — so the demotion never fires and
+  busybox passes ANSI escapes straight through. `command.com` has no ANSI interpreter, so
+  every cursor move shows up literally (e.g. backspace prints `^[[1D` instead of erasing).
+  Fix: detect Win9x at startup via `GetVersionEx` and force `mode=0` (Console API
+  emulation) before the probe runs.
+- Patched busybox-w32's `spawnveq` to backslash-form the executable path before
+  `_spawnve`. busybox caches `bb_busybox_exec_path` from `GetModuleFileName` and then runs
+  it through `bs_to_slash()` (cosmetic). Win9x's `CreateProcess` rejects forward slashes in
+  `lpApplicationName`; NT silently normalizes. Without this fix, the forkshell spawn above
+  also fails on Win9x for the unrelated reason that the *path* is wrong-shaped. The
+  conversion is always-on (safe on NT too).
+- Added a tiny C shim ([`bb-shim`](repro/bb-shim/bb-shim.c)) that substitutes for per-applet
+  symlinks on FAT32. busybox's POSIX install creates a symlink per applet (`ls` → `busybox`,
+  `cp` → `busybox`, ...) and dispatches via `argv[0]`. FAT32 has no symlinks and no
+  hardlinks. The shim is a ~49 KB statically-linked .exe: at startup it derives the applet
+  name from its own filename, locates `busybox.exe` in the same directory, and
+  `_spawnv P_WAIT`s it with the original arguments shifted right by one. Build once,
+  copy-renamed under ~57 common applet names by [`build-bb-shims.sh`](repro/scripts/build-bb-shims.sh)
+  — covers the POSIX userland staples (`ls`, `cp`, `mv`, `rm`, `mkdir`, `cat`, `grep`,
+  `sed`, `awk`, `find`, `xargs`, `tar`, `gzip`, `md5sum`, `vi`, `less`, `clear`, ...).
+  Works from `command.com` and inside `busybox sh` alike — each shim is a real `.exe`, so
+  both shells dispatch through normal `CreateProcess`.
 - Added a `win98-compat` API shim layer for *functions* that are missing on Win98 but whose host
   DLL still exists (e.g. `kernel32!GetFinalPathNameByHandleA`, `ws2_32!getaddrinfo`,
   `advapi32!SystemFunction036`, `msvcrt!qsort_s`). The shim is a static library + header that

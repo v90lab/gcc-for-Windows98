@@ -77,6 +77,9 @@ apply_component() {
         mingw-w64)
             source_dir="${SRC_DIR}/mingw-w64"
             ;;
+        binutils-gdb)
+            source_dir="${SRC_DIR}/binutils-gdb"
+            ;;
         pthread9x)
             source_dir="${SRC_DIR}/pthread9x"
             ;;

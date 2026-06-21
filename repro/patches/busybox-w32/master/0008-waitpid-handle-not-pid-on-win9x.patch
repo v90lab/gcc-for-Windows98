@@ -1,0 +1,80 @@
+From: gcc-for-windows98 patcher <patches@example.invalid>
+Subject: [PATCH] ash: use handle-derived pid on Win9x instead of GetProcessId
+
+Win9x has no GetProcessId; our win98-compat shim returns 0 for any
+non-current-process handle.  busybox's forkparent stores this in
+ps_pid, then waitpid_child returns the same 0 from a matched wait,
+and waitone() bails on `pid <= 0` before the job-state update --
+so dowait() loops forever waiting for JOBDONE that never comes.
+This shows up as `sh` hanging after every external command on Win98.
+
+Use the child HANDLE value as a stable surrogate pid on Win9x.  The
+value is opaque to the user (so are real PIDs); equality matching
+between the spawn and wait sites is all busybox needs here.
+Reuses is_win9x_proc() from patch 0006 (exposed via mingw.h).
+
+---
+diff --git a/include/mingw.h b/include/mingw.h
+--- a/include/mingw.h
++++ b/include/mingw.h
+@@ -28,6 +28,7 @@
+ static inline unsigned int git_ntohl(unsigned int x) { return (unsigned int)ntohl(x); }
+ #define ntohl git_ntohl
+ int inet_aton(const char *cp, struct in_addr *inp) FAST_FUNC;
++int is_win9x_proc(void);
+ int inet_pton(int af, const char *src, void *dst) FAST_FUNC;
+ 
+ /*
+
+diff --git a/win32/process.c b/win32/process.c
+--- a/win32/process.c
++++ b/win32/process.c
+@@ -10,7 +10,7 @@
+ 
+ /* Win9x detection -- same logic as winansi.c::is_win9x but available
+  * in process.c.  Cached, cheap on repeat calls. */
+-static int is_win9x_proc(void)
++int is_win9x_proc(void)
+ {
+ 	static int cached = -1;
+ 	if (cached == -1) {
+
+diff --git a/shell/ash.c b/shell/ash.c
+--- a/shell/ash.c
++++ b/shell/ash.c
+@@ -4939,7 +4939,14 @@
+ 			if (idx < pid_nr) {
+ 				GetExitCodeProcess(proclist[idx], &win_status);
+ 				*status = exit_code_to_wait_status(win_status);
+-				pid = GetProcessId(proclist[idx]);
++				/* See forkparent(): on Win9x derive a surrogate pid from the
++				 * handle so this equality matches the value stored at spawn
++				 * time.  GetProcessId returns 0 on Win9x, which causes the
++				 * caller to busy-loop forever (see waitone -> goto out). */
++				if (is_win9x_proc())
++					pid = (pid_t)((uintptr_t)proclist[idx] & 0x7FFFFFFF) | 1;
++				else
++					pid = GetProcessId(proclist[idx]);
+ 				break;
+ 			}
+ 		} while (blocking && !pending_int && waitcmd_int != 1);
+@@ -6211,7 +6218,18 @@
+ #endif
+ {
+ #if ENABLE_PLATFORM_MINGW32
+-	pid_t pid = GetProcessId(proc);
++	/* On Win9x GetProcessId() is unavailable (Vista+); our shim returns 0.
++	 * busybox stores this in ps_pid and later matches it against the value
++	 * returned from waitpid_child().  Use the handle value as a stable
++	 * surrogate -- it's unique within this process's lifetime and the
++	 * match site (waitone) only needs equality, not a real PID.  Both
++	 * sides of the comparison must agree on the same derivation, so
++	 * waitpid_child() applies the same transform. */
++	pid_t pid;
++	if (is_win9x_proc())
++		pid = (pid_t)((uintptr_t)proc & 0x7FFFFFFF) | 1;
++	else
++		pid = GetProcessId(proc);
+ #else
+ 	if (pid < 0) {
+ 		TRACE(("Fork failed, errno=%d", errno));
