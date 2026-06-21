@@ -41,19 +41,28 @@ declare -a SHIM_APPLETS=(
     basename dirname sleep date expr kill ps
     # Text processing
     grep sed awk head tail sort uniq wc cut tr find xargs paste tee
-    tac rev seq
+    tac rev seq comm join tsort shuf ts nl fold expand unexpand
+    egrep fgrep
+    # Text encoding / line endings
+    dos2unix unix2dos base32 base64 uudecode uuencode
     # File ops / metadata
-    touch du df stat which printf
+    touch du df stat which printf realpath split truncate
     # Shell helpers
-    yes clear
+    yes clear getopt mktemp
+    # Process control / timing
+    time timeout watch
     # Editors / viewers
-    vi less
+    vi less ed
     # Binary / dump tools
-    hexdump od dd
+    hexdump od dd xxd strings
     # Checksums
-    md5sum sha1sum sha256sum sha512sum
+    md5sum sha1sum sha256sum sha512sum sum cksum crc32 sha384sum sha3sum
     # Archives / compression
-    tar gzip gunzip
+    tar gzip gunzip ar
+    bunzip2 bzcat bzip2 cpio uncompress unzip
+    xz xzcat unxz lzma lzcat unlzma lzop lzopcat unlzop zcat
+    # Math / IDs / system info
+    bc dc uuidgen nproc
     # Networking (DNS resolution works after win98-compat getaddrinfo shim;
     # socket() layer may have Win9x quirks — see sockdiag.exe)
     wget
