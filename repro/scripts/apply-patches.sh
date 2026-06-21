@@ -114,6 +114,28 @@ apply_component() {
     log "Source: $source_dir"
     log "Patches: $component_patches_dir"
 
+    # Marker-file short-circuit: hash all patch files in the series, compare
+    # against the per-component marker. If unchanged, the source is already
+    # patched and we skip the per-patch loop entirely.
+    #
+    # This dodges a structural bug in the apply_patch() fallback chain:
+    # `patch -R --dry-run` (the "already applied?" detector) cannot cleanly
+    # reverse a patch whose immediate context has been modified by a LATER
+    # patch in the series. The marker is authoritative; per-patch reverse-
+    # detection is fragile and was the root cause of the round-5 failure
+    # where 0004 hunk 3 reverse-failed because 0007 inserted bbdbg_log
+    # calls into its context.
+    local marker_file="${REPRO_DIR}/out/.patches-applied-${component}-${version:-default}"
+    local series_hash=""
+    if [[ -d "$component_patches_dir" ]]; then
+        series_hash=$(cat "${component_patches_dir}"/*.patch 2>/dev/null | sha256sum | cut -d' ' -f1)
+    fi
+    if [[ -n "$series_hash" && -f "$marker_file" && "$(cat "$marker_file" 2>/dev/null)" == "$series_hash" ]]; then
+        log "  Series hash matches marker: $series_hash"
+        log "=== All patches already applied (marker hit) for ${component} (${version:-default}) ==="
+        return 0
+    fi
+
     local failed=0
     if [[ -f "$series_file" ]]; then
         while IFS= read -r patch_name; do
@@ -152,6 +174,14 @@ apply_component() {
     fi
 
     if [[ "$failed" -eq 0 ]]; then
+        # Record the series hash so future runs can short-circuit. Marker dir
+        # is the build's out/ — it survives across container restarts and is
+        # outside the source tree (so `git reset` doesn't nuke it).
+        if [[ -n "$series_hash" ]]; then
+            mkdir -p "$(dirname "$marker_file")"
+            printf '%s\n' "$series_hash" > "$marker_file"
+            log "  Wrote marker: $marker_file"
+        fi
         log "=== All patches applied successfully for ${component} (${version}) ==="
         return 0
     else
