@@ -187,6 +187,8 @@ If you find yourself wanting to add a second function to an existing shim, stop 
 
 ### 5.8 Vista+ APIs in third-party source
 
+For worked-example walk-throughs of past Win9x investigations (the round-by-round breakdown of how a symptom narrowed to a root cause), see [`repro/docs/win98-debug-history.md`](repro/docs/win98-debug-history.md). The active "what's currently shipping and being tested on real hardware" tracker is at [`WIN98-MANUAL-CHECKS.md`](WIN98-MANUAL-CHECKS.md) at the repo root.
+
 The Win98 `_WIN32_WINNT=0x0400` setting hides any mingw-w64 declaration gated behind a higher target. Third-party projects that feature-detect at compile time (rather than via configure-time probes) hit this as `unknown type name` / `implicit declaration` errors on Vista-era APIs like `FILE_NAME_INFO`, `GetFileInformationByHandleEx`, `BCryptGenRandom`, `RtlGenRandom`.
 
 Pick by who's calling and why:
