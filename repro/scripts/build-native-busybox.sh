@@ -21,6 +21,14 @@ INSTALL_DIR="$REPO_ROOT/out/extras-toolset"
 CROSS_BIN_DIR="$REPO_ROOT/out/toolchain/bin"
 CONFIG_SRC="$REPO_ROOT/configs/busybox-w32.config"
 
+# Rebuild when the checked-in Kconfig changes (e.g. enabling/disabling
+# applets). Without this, edits to busybox-w32.config silently don't
+# propagate because the sentinel stays satisfied. apply-patches.sh runs
+# inside this script too, so patch series edits in repro/patches/busybox-w32/
+# also need the sentinel cleared — those don't auto-invalidate yet; nuke
+# the sentinel manually if you edit a busybox patch.
+invalidate_if_stale build-native-busybox "$CONFIG_SRC"
+
 skip_if_done build-native-busybox
 
 # === STEP 1: Verify prerequisites ===

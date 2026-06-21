@@ -63,9 +63,15 @@ declare -a SHIM_APPLETS=(
     xz xzcat unxz lzma lzcat unlzma lzop lzopcat unlzop zcat
     # Math / IDs / system info
     bc dc uuidgen nproc
-    # Networking (DNS resolution works after win98-compat getaddrinfo shim;
-    # socket() layer may have Win9x quirks — see sockdiag.exe)
-    wget
+    # NOTE: no networking applets shimmed.
+    # wget was here previously but is now disabled in busybox-w32.config
+    # because msvcrt _open_osfhandle rejects SOCKET handles on Win9x.
+    # See repro/docs/networking-on-win98.md for the full reasoning + the
+    # list of applets to NOT re-enable without doing the fix work.
+    # nc and httpd ship as standalone busybox applets (not shimmed via
+    # SHIM_APPLETS — they're invoked directly as "busybox nc" / "busybox
+    # httpd", or you can add them here if a top-level "nc.exe" / "httpd.exe"
+    # entry point is wanted).
 )
 
 # Caller script (this file) is implicit input, so SHIM_APPLETS edits also
