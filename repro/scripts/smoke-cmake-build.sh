@@ -161,13 +161,26 @@ while IFS= read -r -d '' exe; do
 done < <(find "$OUTPUT_BIN_DIR" -type f -iname "*.exe" -print0 | sort -z)
 
 log "=== Wine execution check ==="
-while IFS= read -r -d '' exe; do
-    run_under_wine "$exe"
-done < <(find "$OUTPUT_BIN_DIR" -type f -iname "*.exe" -print0 | sort -z)
+# Skip the wine sweep when any PE check failed. A Win98-incompatible binary
+# (e.g. UCRT import, OS version > 4) can still happily run under wine on a
+# modern Linux host, so green wine output here would mask the real PE failure
+# — and the script's going to die at the end anyway because FAIL_PE>0 feeds
+# TOTAL_FAIL. No point spending the runtime.
+if (( FAIL_PE > 0 )); then
+    log "[SKIP] $FAIL_PE PE failure(s) — skipping wine sweep (would not change verdict)"
+else
+    while IFS= read -r -d '' exe; do
+        run_under_wine "$exe"
+    done < <(find "$OUTPUT_BIN_DIR" -type f -iname "*.exe" -print0 | sort -z)
+fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 log "=== [$TOOLCHAIN_KIND] PE check:  $PASS_PE passed, $FAIL_PE failed ==="
-log "=== [$TOOLCHAIN_KIND] Wine run:  $PASS_RUN passed, $FAIL_RUN failed ==="
+if (( FAIL_PE > 0 )); then
+    log "=== [$TOOLCHAIN_KIND] Wine run:  skipped (PE check failed) ==="
+else
+    log "=== [$TOOLCHAIN_KIND] Wine run:  $PASS_RUN passed, $FAIL_RUN failed ==="
+fi
 
 TOTAL_FAIL=$(( FAIL_PE + FAIL_RUN ))
 if [[ "$TOTAL_FAIL" -gt 0 ]]; then
