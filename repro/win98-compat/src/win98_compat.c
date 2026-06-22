@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>   /* struct __stat64 / struct _stati64 for the _fstat64 shim */
+#include <time.h>       /* struct tm, __time32_t, __time64_t for the _mkgmtime shims */
 #include <errno.h>
 
 /* --- DLL handle caches -------------------------------------------------- */
@@ -549,6 +550,95 @@ win98__fstat64(int fd, struct __stat64 *st64)
     return 0;
 }
 
+/* === MSVCRT: _mkgmtime32 / _mkgmtime64 ==================================== */
+/* Win98 SE's msvcrt.dll exports the POSIX-named time funcs (mktime, gmtime,
+   localtime, time, strftime) but NOT the Microsoft-extension `_mkgmtime`
+   (treat-tm-as-UTC variant of mktime; XP-era addition to msvcrt). mingw-w64
+   declares `_mkgmtime` as an asm-call alias for the size-suffixed
+   `_mkgmtime32` / `_mkgmtime64`, and mingw's libmsvcrt thunks BOTH suffixes
+   back to the bare `_mkgmtime` import name in the DLL — so any consumer
+   calling `_mkgmtime(tm)` (or `timegm(tm)` on platforms that map it to
+   `_mkgmtime`) trips the PE verifier on msvcrt:_mkgmtime.
+
+   Tripped by jq 1.8.2: src/builtin.c::my_mktime has a #elif WIN32 branch
+   that calls _mkgmtime directly when neither HAVE_TIMEGM nor HAVE_TM_*GMT_OFF
+   are defined (mingw provides neither). Likely to be tripped by future
+   timezone-aware consumers too.
+
+   Implementation: pure-C UTC tm → seconds-since-1970-01-01 conversion. No
+   GetProcAddress probe (msvcrt's _mkgmtime semantics are deterministic UTC
+   math, identical on every host that has it — so the fallback IS the real
+   answer, not an approximation). Updates tm_wday/tm_yday/tm_isdst the way
+   Microsoft's _mkgmtime does. Accepts only normalized input (does NOT
+   handle e.g. tm_mon=14 → roll into next year) — every observed consumer
+   passes already-normalized struct tm. */
+static __time64_t
+win98__mkgmtime_compute(const struct tm *tm)
+{
+    static const int days_before_month[12] = {
+        0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
+    };
+    int year = tm->tm_year + 1900;
+    if (year < 1970 || tm->tm_mon < 0 || tm->tm_mon > 11) return (__time64_t)-1;
+
+    int is_leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+
+    /* Days from 1970-01-01 to <year>-01-01. The 100/400 rules don't fire
+       in this range until 2100, but keep the general check for forward-
+       compat with 64-bit time_t consumers. */
+    long days = 0;
+    for (int y = 1970; y < year; y++) {
+        int yl = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
+        days += yl ? 366 : 365;
+    }
+    days += days_before_month[tm->tm_mon];
+    if (is_leap && tm->tm_mon >= 2) days++;
+    days += tm->tm_mday - 1;
+
+    return (__time64_t)days * 86400LL
+         + (__time64_t)tm->tm_hour * 3600LL
+         + (__time64_t)tm->tm_min * 60LL
+         + (__time64_t)tm->tm_sec;
+}
+
+static void
+win98__mkgmtime_normalize(struct tm *tm, __time64_t t)
+{
+    static const int days_before_month[12] = {
+        0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
+    };
+    int year = tm->tm_year + 1900;
+    int is_leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    tm->tm_yday = days_before_month[tm->tm_mon]
+                + ((is_leap && tm->tm_mon >= 2) ? 1 : 0)
+                + tm->tm_mday - 1;
+    /* 1970-01-01 was a Thursday (= 4). days_since_epoch + 4 (mod 7). */
+    long days_since_epoch = (long)(t / 86400LL);
+    int wday = (int)((days_since_epoch + 4) % 7);
+    tm->tm_wday = wday < 0 ? wday + 7 : wday;
+    tm->tm_isdst = 0;
+}
+
+__time32_t __cdecl
+win98__mkgmtime32(struct tm *tm)
+{
+    if (!tm) return (__time32_t)-1;
+    __time64_t t = win98__mkgmtime_compute(tm);
+    if (t < 0 || t > (__time64_t)0x7FFFFFFF) return (__time32_t)-1;
+    win98__mkgmtime_normalize(tm, t);
+    return (__time32_t)t;
+}
+
+__time64_t __cdecl
+win98__mkgmtime64(struct tm *tm)
+{
+    if (!tm) return (__time64_t)-1;
+    __time64_t t = win98__mkgmtime_compute(tm);
+    if (t < 0) return (__time64_t)-1;
+    win98__mkgmtime_normalize(tm, t);
+    return t;
+}
+
 /* === Linker-symbol interception =========================================== */
 /* For each shimmed function FOO, expose BOTH names the linker can reach:
  *
@@ -644,6 +734,20 @@ __asm__(
     ".globl __imp___fstat64\n"
     "__imp___fstat64:\n"
     "\t.long _win98__fstat64\n"
+    /* _mkgmtime32 / _mkgmtime64: cdecl, name starts with `_`. mingw's
+       libmsvcrt thunks BOTH suffixes to the bare `_mkgmtime` import name in
+       msvcrt.dll, so intercepting either suffix prevents the underlying
+       _mkgmtime DLL import from being generated. We define both because the
+       suffix mingw picks depends on _USE_32BIT_TIME_T at the consumer's
+       include time (auto-defined for 32-bit Windows / non-_UCRT, but a
+       future consumer building with __MINGW_USE_VC2005_COMPAT would land
+       on _mkgmtime64). */
+    ".globl __imp___mkgmtime32\n"
+    "__imp___mkgmtime32:\n"
+    "\t.long _win98__mkgmtime32\n"
+    ".globl __imp___mkgmtime64\n"
+    "__imp___mkgmtime64:\n"
+    "\t.long _win98__mkgmtime64\n"
 
     /* --- Direct-call thunks (.text) ------------------------------------- */
     ".text\n"
@@ -697,4 +801,10 @@ __asm__(
     ".globl __fstat64\n"
     "__fstat64:\n"
     "\tjmp _win98__fstat64\n"
+    ".globl __mkgmtime32\n"
+    "__mkgmtime32:\n"
+    "\tjmp _win98__mkgmtime32\n"
+    ".globl __mkgmtime64\n"
+    "__mkgmtime64:\n"
+    "\tjmp _win98__mkgmtime64\n"
 );

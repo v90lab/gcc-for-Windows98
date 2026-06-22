@@ -51,6 +51,7 @@ REQUIRED_PATHS=(
     "bin/patch.exe"
     "bin/gdb.exe"
     "bin/muon.exe"
+    "bin/jq.exe"
 )
 
 if [[ "$VERIFY_MODE" == "directory" ]]; then

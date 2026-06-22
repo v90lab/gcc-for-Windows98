@@ -15,7 +15,7 @@ set -euo pipefail
 #   --target T    Target triplet (default: i686-w64-mingw32)
 #   --resume [S]  Resume from step S (or auto-detect last completed step)
 #   --generate-patches  Regenerate patch folders before prepare steps
-#   --with-extras       Build the extras tarball (busybox, make, ctags, diffutils, patch, gdb, muon)
+#   --with-extras       Build the extras tarball (busybox, make, ctags, diffutils, patch, gdb, muon, jq)
 #   --without-extras    Skip the extras tarball
 #   --help, -h    Show this help and exit
 # ============================================================================
@@ -172,6 +172,7 @@ declare -a EXTRAS_STEPS=(
   "build-native-patch|build-native-patch.sh|Build GNU patch|builder|${WIN98_COMPAT_AR}"
   "build-native-gdb|build-native-gdb.sh|Build gdb|builder|${WIN98_COMPAT_AR}"
   "build-native-muon|build-native-muon.sh|Build muon|builder|${WIN98_COMPAT_AR}"
+  "build-native-jq|build-native-jq.sh|Build jq|builder|${WIN98_COMPAT_AR}"
   "build-bcrypt-shim|build-bcrypt-shim.sh|Build bcrypt.dll shim for gdb|builder|bcrypt-shim/bcrypt.c"
   "build-bb-shims|build-bb-shims.sh|Build + install bb-shim applet copies|builder|bb-shim/bb-shim.c"
   "build-consdiag|build-consdiag.sh|Build consdiag.exe Win9x stdio diagnostic|builder|diag/consdiag.c"

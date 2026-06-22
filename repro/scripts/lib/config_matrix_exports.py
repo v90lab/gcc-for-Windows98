@@ -23,6 +23,7 @@ MAPPING = {
     "diffutils": "DIFFUTILS",
     "patch": "PATCH",
     "muon": "MUON",
+    "jq": "JQ",
 }
 
 VERSION_ONLY_MAPPING = {

@@ -13,7 +13,7 @@ set -euo pipefail
 #   --no-cache    Force rebuild Docker images without cache
 #   --clean       Clean out/ build/ logs/ AND src/ directories before build
 #   --retry       Smart retry: git-reset sources (preserve clones), clean artifacts only
-#   --with-extras       Build the extras tarball (busybox, make, ctags, diffutils, patch, gdb, muon) [default]
+#   --with-extras       Build the extras tarball (busybox, make, ctags, diffutils, patch, gdb, muon, jq) [default]
 #   --without-extras    Skip the extras tarball
 # ============================================================================
 

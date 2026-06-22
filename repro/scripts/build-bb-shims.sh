@@ -128,7 +128,7 @@ declare -A STANDALONE_TOOL=(
     [busybox.exe]=1 [sh.exe]=1 [make.exe]=1 [ctags.exe]=1
     [diff.exe]=1 [diff3.exe]=1 [cmp.exe]=1 [patch.exe]=1
     [gdb.exe]=1 [gdbserver.exe]=1 [gdb-add-index]=1
-    [muon.exe]=1 [bcrypt.dll]=1 [bb-shim.exe]=1
+    [muon.exe]=1 [jq.exe]=1 [bcrypt.dll]=1 [bb-shim.exe]=1
 )
 
 installed=0

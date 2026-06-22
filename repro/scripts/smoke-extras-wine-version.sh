@@ -28,6 +28,7 @@ declare -A TOOLS=(
     [patch.exe]="--version"
     [gdb.exe]="--version"
     [muon.exe]="version"
+    [jq.exe]="--version"
 )
 
 PASS=0

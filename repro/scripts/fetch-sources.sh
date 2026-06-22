@@ -74,6 +74,10 @@ fetch_component "muon" \
   "$MUON_FETCH_SOURCE" "$MUON_FETCH_REF" \
   "$MUON_TARBALL_URL" "$MUON_TARBALL_SHA512" "$MUON_TARBALL_SHA256" "${MUON_TARBALL_STRIP:-1}"
 
+fetch_component "jq" \
+  "$JQ_FETCH_SOURCE" "$JQ_FETCH_REF" \
+  "$JQ_TARBALL_URL" "$JQ_TARBALL_SHA512" "$JQ_TARBALL_SHA256" "${JQ_TARBALL_STRIP:-1}"
+
 log "using container-provided dev packages for gmp/mpfr/mpc in the first reproduction pass"
 mark_done fetch-sources
 log "fetch complete"

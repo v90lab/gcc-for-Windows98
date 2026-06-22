@@ -181,6 +181,9 @@ PATCH_FETCH_REF=""
 MUON_FETCH_SOURCE=""
 MUON_FETCH_REF=""
 
+JQ_FETCH_SOURCE=""
+JQ_FETCH_REF=""
+
 # Optional tarball overrides per component (empty if not configured).
 # When *_TARBALL_URL is set, fetch-sources.sh prefers it over a git clone.
 GCC_TARBALL_URL=""
@@ -233,6 +236,11 @@ MUON_TARBALL_SHA512=""
 MUON_TARBALL_SHA256=""
 MUON_TARBALL_STRIP=""
 
+JQ_TARBALL_URL=""
+JQ_TARBALL_SHA512=""
+JQ_TARBALL_SHA256=""
+JQ_TARBALL_STRIP=""
+
 # Component release/version values from config.json matrix (distinct from fetch refs).
 GCC_COMPONENT_VERSION=""
 BINUTILS_COMPONENT_VERSION=""
@@ -244,6 +252,7 @@ CTAGS_COMPONENT_VERSION=""
 DIFFUTILS_COMPONENT_VERSION=""
 PATCH_COMPONENT_VERSION=""
 MUON_COMPONENT_VERSION=""
+JQ_COMPONENT_VERSION=""
 MATRIX_SELECTED_LABEL=""
 
 load_fetch_config_from_json() {

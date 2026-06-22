@@ -28,7 +28,7 @@ set -euo pipefail
 #             IsWow64Process, GetProcessId, GetConsoleWindow, GetFileSizeEx
 #   ws2_32:   getaddrinfo, freeaddrinfo, getnameinfo
 #   advapi32: SystemFunction036 (RtlGenRandom)
-#   msvcrt:   qsort_s
+#   msvcrt:   qsort_s, _fstat64, _mkgmtime32, _mkgmtime64
 # ============================================================================
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
@@ -98,6 +98,8 @@ EXPECTED_TEXT_SYMBOLS=(
     win98_SystemFunction036
     win98_qsort_s
     win98__fstat64
+    win98__mkgmtime32
+    win98__mkgmtime64
 )
 # Each shimmed function FOO has TWO linker-visible aliases in the archive:
 #   - __imp__FOO@N in .rdata  (IAT slot for dllimport callers)
@@ -124,6 +126,8 @@ EXPECTED_INTERCEPT_NAMES=(
     SystemFunction036@8
     qsort_s
     _fstat64
+    _mkgmtime32
+    _mkgmtime64
 )
 NM_OUT=$("$CROSS_BIN_DIR/${TARGET}-nm" --defined-only "$BUILD_DIR/libwin98compat.a")
 for sym in "${EXPECTED_TEXT_SYMBOLS[@]}"; do

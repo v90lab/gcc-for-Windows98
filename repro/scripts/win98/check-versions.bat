@@ -69,6 +69,7 @@ if exist bin\ctags.exe bin\ctags.exe --version
 if exist bin\diff.exe bin\diff.exe --version
 if exist bin\patch.exe bin\patch.exe --version
 if exist bin\muon.exe bin\muon.exe version
+if exist bin\jq.exe bin\jq.exe --version
 echo.
 pause
 
