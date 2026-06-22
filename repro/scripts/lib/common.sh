@@ -340,6 +340,52 @@ invalidate_if_stale() {
   done
 }
 
+# --- Runner-side variant (used by run-toolchain-build.sh + run-smoke-pipeline.sh)
+#
+# Same idea as invalidate_if_stale, but designed to be called from the runner
+# layer ON the host BEFORE invoking the step script. Necessary because both
+# runners short-circuit via is_done / is_done_in_builder before the step
+# script ever runs, which means the in-script invalidate_if_stale helper
+# never fires on `./build.sh` invocations.
+#
+# Args:
+#   $1 — status_name (the sentinel basename minus the prefix)
+#   $2 — script_name (relative to scripts/, auto-included as an input so
+#        editing the step script always invalidates the sentinel)
+#   $3 — inputs_csv (colon-separated paths relative to ROOT_DIR; empty OK)
+#
+# Behavior: if any input is newer than the sentinel, remove the sentinel and
+# echo an "INVALIDATE: ..." line to stdout (the caller can tee that into
+# whatever master log it owns). Returns 0 either way.
+invalidate_step_if_stale() {
+    local status_name="$1"
+    local script_name="$2"
+    local inputs_csv="$3"
+
+    local sentinel="$OUT_DIR/.status-${STATUS_SCOPE}-${status_name}"
+    [[ -f "$sentinel" ]] || return 0
+
+    local -a candidates=("$ROOT_DIR/scripts/$script_name")
+    if [[ -n "$inputs_csv" ]]; then
+        local IFS=':'
+        local -a extra=( $inputs_csv )
+        IFS=$' \t\n'
+        local p
+        for p in "${extra[@]}"; do
+            candidates+=("$ROOT_DIR/$p")
+        done
+    fi
+
+    local input
+    for input in "${candidates[@]}"; do
+        if [[ -f "$input" && "$input" -nt "$sentinel" ]]; then
+            echo "[$(date +%H:%M:%S)] [host] === INVALIDATE: $status_name (newer input: ${input#$ROOT_DIR/}) ==="
+            rm -f "$sentinel"
+            return 0
+        fi
+    done
+}
+
 # --- Directory Guards -------------------------------------------------------
 require_dir() {
   local dir="$1"

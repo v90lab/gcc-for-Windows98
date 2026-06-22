@@ -101,8 +101,24 @@ check_containers() {
 }
 
 # --- Step Definitions --------------------------------------------------------
-# Each step: "status_name|script_name|description|env"
+# Each step: "status_name|script_name|description|env[|input1:input2:...]"
 #   env = builder
+#   inputs (optional 5th field): colon-separated paths relative to repo root.
+#     If any input is newer than the step's sentinel, the runner removes the
+#     sentinel before checking is_done_in_builder — so the step re-runs on the
+#     next ./build.sh after you edit one of its in-tree inputs. The step's own
+#     script file is auto-included as an implicit input, so editing the script
+#     itself always invalidates. The in-script invalidate_if_stale helper is a
+#     backstop for direct invocations (docker compose exec ...) and is fine to
+#     keep but no longer load-bearing here.
+# The cross-sysroot libwin98compat.a is the canonical "the shim changed" signal.
+# Declared as an input to every native/extras step that either (a) directly
+# links -lwin98compat at build time, or (b) consumes the produced binaries
+# downstream (verify / strip / package / manifest). When the shim is rebuilt
+# this re-fires the entire affected chain instead of silently shipping a
+# half-updated toolset.
+WIN98_COMPAT_AR="out/toolchain/i686-w64-mingw32/lib/libwin98compat.a"
+
 declare -a CROSS_STEPS=(
   "fetch-sources|fetch-sources.sh|Fetch source trees|builder"
   "generate-patches|generate-patches.sh|Generate versioned patch series|builder"
@@ -116,8 +132,8 @@ declare -a CROSS_STEPS=(
   "build-pthread9x|build-cross-pthread9x.sh|Build pthread9x|builder"
   "build-gcc|build-cross-gcc.sh|Build GCC final|builder"
   "verify-cross-compiler-features|verify-cross-compiler-features.sh|Verify cross compiler features|builder"
-  "build-win98-compat|build-win98-compat.sh|Build Win98 API compat shim (libwin98compat.a)|builder"
-  "install-pe-checker|install-pe-checker.sh|Bundle pe-win98-check.sh + data into cross toolchain|builder"
+  "build-win98-compat|build-win98-compat.sh|Build Win98 API compat shim (libwin98compat.a)|builder|win98-compat/src/win98_compat.c:win98-compat/include/win98_compat.h"
+  "install-pe-checker|install-pe-checker.sh|Bundle pe-win98-check.sh + data into cross toolchain|builder|scripts/verifiers/pe-win98-check.sh:data/win98se-api-allowlist.json:data/win98-behavioral-denylist.json"
   "package|package-cross-toolset.sh|Package cross toolchain|builder"
   "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder"
 )
@@ -126,38 +142,38 @@ declare -a NATIVE_STEPS=(
   "build-native-mingw-deps|build-native-mingw-deps.sh|Build native mingw dependency libraries|builder"
   "build-native-mingw-w64|build-native-mingw-w64.sh|Build native-host mingw-w64|builder"
   "build-native-host-gcc|build-native-host-gcc.sh|Build native-host GCC|builder"
-  "build-native-binutils|build-native-binutils.sh|Build native-host binutils|builder"
+  "build-native-binutils|build-native-binutils.sh|Build native-host binutils|builder|${WIN98_COMPAT_AR}"
   "build-native-pthread9x|build-native-pthread9x.sh|Build native-host pthread9x|builder"
   "verify-native-compiler-features|verify-native-compiler-features.sh|Verify native compiler features|builder"
-  "verify-native-win98-capability|verifiers/verify-native-package.sh|Verify native toolset Win98 capability|builder"
-  "install-win98-compat-native|install-win98-compat-native.sh|Mirror win98-compat shim into native toolset|builder"
-  "install-win98-helpers-native|install-win98-helpers-native.sh|Install setenv.bat + check-versions.bat into native toolset|builder"
-  "strip-native-toolset|strip-native-toolset.sh|Strip debug info from native toolset binaries|builder"
-  "package-native-toolset|package-native-toolset.sh|Package native toolset|builder"
-  "write-native-toolchain-manifest-v2|write-toolchain-manifest.sh|Write native toolchain manifest|builder"
+  "verify-native-win98-capability|verifiers/verify-native-package.sh|Verify native toolset Win98 capability|builder|${WIN98_COMPAT_AR}"
+  "install-win98-compat-native|install-win98-compat-native.sh|Mirror win98-compat shim into native toolset|builder|${WIN98_COMPAT_AR}:out/toolchain/i686-w64-mingw32/include/win98_compat.h"
+  "install-win98-helpers-native|install-win98-helpers-native.sh|Install setenv.bat + check-versions.bat into native toolset|builder|scripts/win98/setenv.bat:scripts/win98/check-versions.bat"
+  "strip-native-toolset|strip-native-toolset.sh|Strip debug info from native toolset binaries|builder|${WIN98_COMPAT_AR}"
+  "package-native-toolset|package-native-toolset.sh|Package native toolset|builder|${WIN98_COMPAT_AR}"
+  "write-native-toolchain-manifest-v2|write-toolchain-manifest.sh|Write native toolchain manifest|builder|${WIN98_COMPAT_AR}"
 )
 
 # EXTRAS_STEPS: Win98-hosted user tools packaged as gcc-win98-native-toolchain-extras.zip.
 # Ordered cheapest → heaviest so a build can fail fast on simpler tools.
 declare -a EXTRAS_STEPS=(
   "prepare-busybox-w32|prepare-busybox-w32.sh|Prepare busybox-w32 sources (Win9x forkshell + lineedit + spawn-path patches)|builder"
-  "build-native-busybox|build-native-busybox.sh|Build busybox-w32|builder"
-  "build-native-ctags|build-native-ctags.sh|Build universal-ctags|builder"
-  "build-native-make|build-native-make.sh|Build GNU make|builder"
-  "build-native-diffutils|build-native-diffutils.sh|Build GNU diffutils|builder"
-  "build-native-patch|build-native-patch.sh|Build GNU patch|builder"
-  "build-native-gdb|build-native-gdb.sh|Build gdb|builder"
-  "build-native-muon|build-native-muon.sh|Build muon|builder"
-  "build-bcrypt-shim|build-bcrypt-shim.sh|Build bcrypt.dll shim for gdb|builder"
-  "build-bb-shims|build-bb-shims.sh|Build + install bb-shim applet copies|builder"
-  "build-consdiag|build-consdiag.sh|Build consdiag.exe Win9x stdio diagnostic|builder"
-  "build-sockdiag|build-sockdiag.sh|Build sockdiag.exe Win9x Winsock diagnostic|builder"
-  "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder"
-  "install-win98-helpers-extras|install-win98-helpers-extras.sh|Install setenv.bat + check-versions.bat into extras toolset|builder"
-  "strip-extras-toolset|strip-extras-toolset.sh|Strip debug info from extras toolset binaries|builder"
-  "write-extras-build-info|write-extras-build-info.sh|Write BUILD.TXT into extras toolset root|builder"
-  "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder"
-  "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder"
+  "build-native-busybox|build-native-busybox.sh|Build busybox-w32|builder|configs/busybox-w32.config:${WIN98_COMPAT_AR}"
+  "build-native-ctags|build-native-ctags.sh|Build universal-ctags|builder|${WIN98_COMPAT_AR}"
+  "build-native-make|build-native-make.sh|Build GNU make|builder|${WIN98_COMPAT_AR}"
+  "build-native-diffutils|build-native-diffutils.sh|Build GNU diffutils|builder|${WIN98_COMPAT_AR}"
+  "build-native-patch|build-native-patch.sh|Build GNU patch|builder|${WIN98_COMPAT_AR}"
+  "build-native-gdb|build-native-gdb.sh|Build gdb|builder|${WIN98_COMPAT_AR}"
+  "build-native-muon|build-native-muon.sh|Build muon|builder|${WIN98_COMPAT_AR}"
+  "build-bcrypt-shim|build-bcrypt-shim.sh|Build bcrypt.dll shim for gdb|builder|bcrypt-shim/bcrypt.c"
+  "build-bb-shims|build-bb-shims.sh|Build + install bb-shim applet copies|builder|bb-shim/bb-shim.c"
+  "build-consdiag|build-consdiag.sh|Build consdiag.exe Win9x stdio diagnostic|builder|diag/consdiag.c"
+  "build-sockdiag|build-sockdiag.sh|Build sockdiag.exe Win9x Winsock diagnostic|builder|diag/sockdiag.c"
+  "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder|${WIN98_COMPAT_AR}"
+  "install-win98-helpers-extras|install-win98-helpers-extras.sh|Install setenv.bat + check-versions.bat into extras toolset|builder|scripts/win98/setenv.bat:scripts/win98/check-versions.bat"
+  "strip-extras-toolset|strip-extras-toolset.sh|Strip debug info from extras toolset binaries|builder|${WIN98_COMPAT_AR}"
+  "write-extras-build-info|write-extras-build-info.sh|Write BUILD.TXT into extras toolset root|builder|${WIN98_COMPAT_AR}"
+  "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder|${WIN98_COMPAT_AR}"
+  "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder|${WIN98_COMPAT_AR}"
 )
 
 # --- Resume Logic -----------------------------------------------------------
@@ -207,11 +223,16 @@ run_step() {
     local script_name="$2"
     local description="$3"
     local env="$4"
+    local inputs="${5:-}"
     local step_log="$LOG_DIR/${script_name%.sh}-${TIMESTAMP}.log"
 
     mkdir -p "$(dirname "$step_log")"
 
-    # Skip steps already done
+    # Invalidate the sentinel if any declared input is newer than it
+    # (helper lives in common.sh; tee its output into the master log)
+    invalidate_step_if_stale "$status_name" "$script_name" "$inputs" | tee -a "$MASTER_LOG"
+
+    # Skip steps already done (after invalidation)
     if is_done_in_builder "$status_name"; then
       echo "[$(date +%H:%M:%S)] [host] === SKIP (done): $description ===" | tee -a "$MASTER_LOG"
       return 0
@@ -258,8 +279,8 @@ FAILED_STEP=""
 echo "" | tee -a "$MASTER_LOG"
 echo "[$(date +%H:%M:%S)] [host] === PHASE: CROSS toolchain ===" | tee -a "$MASTER_LOG"
 for step_def in "${CROSS_STEPS[@]}"; do
-    IFS='|' read -r status_name script_name description env <<< "$step_def"
-    if ! run_step "$status_name" "$script_name" "$description" "$env"; then
+    IFS='|' read -r status_name script_name description env inputs <<< "$step_def"
+    if ! run_step "$status_name" "$script_name" "$description" "$env" "$inputs"; then
         FAILED=1
         FAILED_STEP="$description ($script_name)"
         break
@@ -271,8 +292,8 @@ if [[ $FAILED -eq 0 ]]; then
     echo "" | tee -a "$MASTER_LOG"
     echo "[$(date +%H:%M:%S)] [host] === PHASE: NATIVE toolchain ===" | tee -a "$MASTER_LOG"
     for step_def in "${NATIVE_STEPS[@]}"; do
-        IFS='|' read -r status_name script_name description env <<< "$step_def"
-        if ! run_step "$status_name" "$script_name" "$description" "$env"; then
+        IFS='|' read -r status_name script_name description env inputs <<< "$step_def"
+        if ! run_step "$status_name" "$script_name" "$description" "$env" "$inputs"; then
             FAILED=1
             FAILED_STEP="$description ($script_name)"
             break
@@ -285,8 +306,8 @@ if [[ $FAILED -eq 0 && "$BUILD_EXTRAS" == "1" ]]; then
     echo "" | tee -a "$MASTER_LOG"
     echo "[$(date +%H:%M:%S)] [host] === PHASE: EXTRAS toolset ===" | tee -a "$MASTER_LOG"
     for step_def in "${EXTRAS_STEPS[@]}"; do
-        IFS='|' read -r status_name script_name description env <<< "$step_def"
-        if ! run_step "$status_name" "$script_name" "$description" "$env"; then
+        IFS='|' read -r status_name script_name description env inputs <<< "$step_def"
+        if ! run_step "$status_name" "$script_name" "$description" "$env" "$inputs"; then
             FAILED=1
             FAILED_STEP="$description ($script_name)"
             break
