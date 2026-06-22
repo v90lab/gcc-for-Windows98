@@ -6,23 +6,32 @@
 #
 # When sourced, provides:
 #   pe_check_win98 <exe>
-#     Inspects the PE binary at <exe> using objdump.
+#     Inspects the PE binary at <exe> using objdump. Runs every check phase
+#     (DLL substring, allowlist, behavioral denylist, OS version) to completion
+#     so a single call surfaces every Win98 incompatibility in the binary —
+#     not just the first one. PE_CHECK_FAIL_REASON is the "; "-joined list.
 #     Returns:
 #       0  — Win98 compatible
 #       1  — incompatible (sets PE_CHECK_FAIL_REASON)
 #       2  — not a PE / objdump failed (skip)
 #     Sets these variables on every call:
 #       PE_CHECK_RESULT       "pass" | "fail" | "skip"
-#       PE_CHECK_FAIL_REASON  human-readable failure description (non-empty on fail)
-#       PE_CHECK_BAD_IMPORT   the offending DLL name (non-empty if DLL-level failure)
-#       PE_CHECK_BAD_FUNCTION the offending DLL:function (non-empty if import-level failure)
+#       PE_CHECK_FAIL_REASON  human-readable failure description, "; "-joined
+#                             across all findings (non-empty on fail)
+#       PE_CHECK_BAD_IMPORT   FIRST offending DLL name (non-empty if any
+#                             DLL-level failure was recorded)
+#       PE_CHECK_BAD_FUNCTION FIRST offending DLL:function (non-empty if any
+#                             import-level failure was recorded)
 #       PE_CHECK_BAD_KIND     "missing" if the function isn't in the allowlist,
 #                             "denied"  if it's in the allowlist but on the
-#                                       behavioral denylist (stub-only on Win98)
+#                                       behavioral denylist (stub-only on Win98);
+#                             reflects the FIRST failure recorded
 #       PE_CHECK_OS_MAJOR     MajorOSVersion integer (empty if not found)
 #       PE_CHECK_OS_MINOR     MinorOSVersion integer (empty if not found)
 #       PE_CHECK_SUBSYS_MAJOR MajorSubsystemVersion integer (empty if not found)
 #       PE_CHECK_SUBSYS_MINOR MinorSubsystemVersion integer (empty if not found)
+#     Note: the three PE_CHECK_BAD_* scalars are first-failure for back-compat
+#     with the documented API; FAIL_REASON is the authoritative full list.
 #
 #   PE_FORBIDDEN_IMPORT_PATTERNS
 #     Array of lower-case substring patterns that must not appear in DLL imports.
@@ -162,17 +171,29 @@ pe_check_win98() {
     fi
 
     local fail=0
+    # `reasons` and `_substring_flagged` are local but reachable via dynamic
+    # scoping from _pe_check_allowlist — that helper appends each finding it
+    # discovers, mirroring how this top-level loop does its own DLL-substring
+    # appends. Tracking substring-hit DLLs here lets the inner function skip
+    # the import rows of an already-flagged DLL (otherwise a ucrt or
+    # vcruntime hit would explode into one "DLL not present" plus one
+    # "import not available" line per imported symbol).
     local reasons=()
+    declare -A _substring_flagged=()
 
     # ── DLL-name substring check (cheap; runs first) ─────────────────────────
+    # All-results mode: don't bail on first match; collect every forbidden
+    # DLL the binary imports. Most binaries hit zero or one of these, but
+    # the loop must keep scanning so the caller sees the full set.
     while IFS= read -r dll_name; do
         local dll_lc="${dll_name,,}"
         for pat in "${PE_FORBIDDEN_IMPORT_PATTERNS[@]}"; do
             if [[ "$dll_lc" == *"$pat"* ]]; then
-                PE_CHECK_BAD_IMPORT="$dll_name"
+                : "${PE_CHECK_BAD_IMPORT:=$dll_name}"
                 reasons+=("forbidden import: $dll_name")
+                _substring_flagged["$dll_lc"]=1
                 fail=1
-                break 2
+                break
             fi
         done
     done < <(printf '%s\n' "$dump" | awk '/DLL Name:/ {print $3}')
@@ -184,30 +205,24 @@ pe_check_win98() {
     #    behavioral denylist (stub-only — binds but always fails at runtime),
     #    reject it with a distinct reason.
     #
+    #    Always runs when configured (no early-exit on substring failures),
+    #    so a binary that imports both ucrt and a bunch of Vista+ kernel32
+    #    symbols reports both classes of problem in one pass.
+    #
     #    PE_CHECK_ALLOWLIST="" (explicit empty) means "skip the per-function
     #    check, don't warn" — caller has opted out. Anything else (default or
     #    explicit path) but a missing file or missing jq is a *degraded* run
     #    and gets a one-shot stderr warning so the user knows the checker
     #    didn't run at full strength.
-    if [[ "$fail" -eq 0 && -n "${PE_CHECK_ALLOWLIST:-}" ]]; then
+    if [[ -n "${PE_CHECK_ALLOWLIST:-}" ]]; then
         if [[ ! -f "$PE_CHECK_ALLOWLIST" ]]; then
             _pe_check_warn_degraded_once "allowlist not found at $PE_CHECK_ALLOWLIST"
         elif ! command -v jq >/dev/null 2>&1; then
             _pe_check_warn_degraded_once "jq not available on PATH (required for per-function and behavioral-denylist checks)"
         else
+            # _pe_check_allowlist now appends each finding to `reasons`
+            # itself; no caller-side reason assembly needed.
             _pe_check_allowlist "$dump" || fail=1
-            if [[ -n "$PE_CHECK_BAD_FUNCTION" ]]; then
-                case "$PE_CHECK_BAD_KIND" in
-                    denied)
-                        reasons+=("Win98 stub-only (binds but non-functional): $PE_CHECK_BAD_FUNCTION")
-                        ;;
-                    *)
-                        reasons+=("import not available on Win98: $PE_CHECK_BAD_FUNCTION")
-                        ;;
-                esac
-            elif [[ -n "$PE_CHECK_BAD_IMPORT" && "$fail" -eq 1 ]]; then
-                reasons+=("DLL not present on Win98: $PE_CHECK_BAD_IMPORT")
-            fi
         fi
     fi
 
@@ -253,9 +268,23 @@ pe_check_win98() {
 # AND the optional behavioral denylist, verifies the DLL is known, every
 # named import is in its export list, and no named import is on the
 # behavioral denylist for its DLL.
-# Sets PE_CHECK_BAD_IMPORT (DLL), PE_CHECK_BAD_FUNCTION (DLL:func), and
-# PE_CHECK_BAD_KIND ("missing"|"denied") on first failure.
-# Returns 0 on full pass, 1 on first failure.
+#
+# All-failures mode: this function does NOT bail on the first issue. Each
+# missing DLL, missing function, and denied function is appended to the
+# `reasons` array owned by the caller (pe_check_win98) via dynamic scoping.
+# The scalar PE_CHECK_BAD_IMPORT / PE_CHECK_BAD_FUNCTION / PE_CHECK_BAD_KIND
+# globals stay populated with the FIRST failure for back-compat with the
+# documented API — no caller currently reads them, but the contract is
+# documented at the top of this file.
+#
+# Substring-flagged DLLs (`_substring_flagged[$dll_lc]` set by the caller)
+# are treated as bundled: we don't emit a "DLL not present" reason for
+# them (the substring check already did) and we don't probe their imports.
+# Without this suppression, a single ucrt/vcruntime import would explode
+# into one "forbidden" + one "DLL not present" + one "import not available"
+# per function it brought in.
+#
+# Returns 0 on full pass, 1 if any failure was recorded.
 _pe_check_allowlist() {
     local dump="$1"
     local allowlist_dlls
@@ -292,9 +321,10 @@ _pe_check_allowlist() {
     local current_dll="" current_dll_lc=""
     local current_exports_loaded=0
     local current_denied_loaded=0
-    local current_bundled=0
+    local current_bundled=0  # also reused as "skip rows" for already-flagged DLLs
     declare -A _exports=()  # symbol -> 1 for the current DLL (allowlist)
     declare -A _denied=()   # symbol -> 1 for the current DLL (behavioral denylist)
+    local found_failure=0
 
     local line
     while IFS= read -r line; do
@@ -308,20 +338,35 @@ _pe_check_allowlist() {
             _exports=()
             _denied=()
 
-            # Bundled DLLs bypass system-allowlist and function checks.
+            # Bundled DLLs (shims we ship) bypass system-allowlist and
+            # function checks entirely.
             if [[ -n "${_bundled_dll[$current_dll_lc]:-}" ]]; then
                 current_bundled=1
                 continue
             fi
+            # Already flagged by the caller's DLL-substring check (ucrt /
+            # vcruntime / api-ms-win-*). Don't add a duplicate "DLL not
+            # present" reason and don't probe its imports.
+            if [[ -n "${_substring_flagged[$current_dll_lc]:-}" ]]; then
+                current_bundled=1
+                continue
+            fi
             if [[ -z "${_known_dll[$current_dll_lc]:-}" ]]; then
-                PE_CHECK_BAD_IMPORT="$current_dll"
-                PE_CHECK_BAD_KIND="missing"
-                return 1
+                : "${PE_CHECK_BAD_IMPORT:=$current_dll}"
+                : "${PE_CHECK_BAD_KIND:=missing}"
+                reasons+=("DLL not present on Win98: $current_dll")
+                found_failure=1
+                # Skip this DLL's import rows — every function it exports is
+                # by definition not in our allowlist (we don't have an
+                # export table for an unknown DLL), so probing them would
+                # generate N redundant "import not available" lines.
+                current_bundled=1
+                continue
             fi
             continue
         fi
 
-        # Skip import rows for a bundled DLL.
+        # Skip import rows for a bundled / already-flagged DLL.
         if [[ "$current_bundled" -eq 1 ]]; then
             continue
         fi
@@ -363,10 +408,12 @@ _pe_check_allowlist() {
                 current_exports_loaded=1
             fi
             if [[ -z "${_exports[$sym]:-}" ]]; then
-                PE_CHECK_BAD_IMPORT="$current_dll"
-                PE_CHECK_BAD_FUNCTION="$current_dll:$sym"
-                PE_CHECK_BAD_KIND="missing"
-                return 1
+                : "${PE_CHECK_BAD_IMPORT:=$current_dll}"
+                : "${PE_CHECK_BAD_FUNCTION:=$current_dll:$sym}"
+                : "${PE_CHECK_BAD_KIND:=missing}"
+                reasons+=("import not available on Win98: $current_dll:$sym")
+                found_failure=1
+                continue
             fi
             # Symbol is in the export table. Now check the behavioral denylist.
             # An entry there means "exported by Win98 SE but always fails at
@@ -383,16 +430,17 @@ _pe_check_allowlist() {
                     current_denied_loaded=1
                 fi
                 if [[ -n "${_denied[$sym]:-}" ]]; then
-                    PE_CHECK_BAD_IMPORT="$current_dll"
-                    PE_CHECK_BAD_FUNCTION="$current_dll:$sym"
-                    PE_CHECK_BAD_KIND="denied"
-                    return 1
+                    : "${PE_CHECK_BAD_IMPORT:=$current_dll}"
+                    : "${PE_CHECK_BAD_FUNCTION:=$current_dll:$sym}"
+                    : "${PE_CHECK_BAD_KIND:=denied}"
+                    reasons+=("Win98 stub-only (binds but non-functional): $current_dll:$sym")
+                    found_failure=1
                 fi
             fi
         fi
     done <<< "$dump"
 
-    return 0
+    return $found_failure
 }
 
 # ── Direct CLI usage ─────────────────────────────────────────────────────────
