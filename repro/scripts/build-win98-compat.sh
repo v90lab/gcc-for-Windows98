@@ -97,6 +97,7 @@ EXPECTED_TEXT_SYMBOLS=(
     win98_getaddrinfo
     win98_SystemFunction036
     win98_qsort_s
+    win98__fstat64
 )
 # Each shimmed function FOO has TWO linker-visible aliases in the archive:
 #   - __imp__FOO@N in .rdata  (IAT slot for dllimport callers)
@@ -122,6 +123,7 @@ EXPECTED_INTERCEPT_NAMES=(
     getnameinfo@28
     SystemFunction036@8
     qsort_s
+    _fstat64
 )
 NM_OUT=$("$CROSS_BIN_DIR/${TARGET}-nm" --defined-only "$BUILD_DIR/libwin98compat.a")
 for sym in "${EXPECTED_TEXT_SYMBOLS[@]}"; do

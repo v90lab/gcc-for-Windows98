@@ -30,6 +30,8 @@
 #include <windows.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>   /* struct __stat64 / struct _stati64 for the _fstat64 shim */
+#include <errno.h>
 
 /* --- DLL handle caches -------------------------------------------------- */
 
@@ -54,6 +56,15 @@ static FARPROC resolve_ws2_32(const char *name)
     static HMODULE ws = NULL;
     if (!ws) ws = LoadLibraryA("ws2_32.dll");
     return ws ? GetProcAddress(ws, name) : NULL;
+}
+
+static FARPROC resolve_msvcrt(const char *name)
+{
+    static HMODULE mc = NULL;
+    /* msvcrt is already mapped (the C runtime is linked into every process),
+       so GetModuleHandleA is enough — no LoadLibrary ref needed. */
+    if (!mc) mc = GetModuleHandleA("msvcrt.dll");
+    return mc ? GetProcAddress(mc, name) : NULL;
 }
 
 /* === KERNEL32 ============================================================ */
@@ -493,6 +504,51 @@ win98_qsort_s(void *base, size_t num, size_t width,
     }
 }
 
+/* === MSVCRT: _fstat64 ==================================================== */
+/* Win98 SE's msvcrt.dll exports _fstat (32-bit st_size) and _fstati64 (int64
+   st_size, 32-bit __time32_t time fields) but NOT _fstat64 (int64 st_size +
+   64-bit __time64_t time fields, an XP-era addition). mingw-w64's static
+   stdio init pulls _fstat64 into every -static binary that touches stdio
+   (FILE setup checks isatty on stdout/stderr), so without this shim every
+   shipped *_static.exe trips the PE verifier on msvcrt:_fstat64.
+
+   Wrap _fstati64 and widen the three time fields from int32 to int64. The
+   other fields (st_dev .. st_size) are identical width in both structs, so
+   it's a member-by-member copy. */
+int __cdecl
+win98__fstat64(int fd, struct __stat64 *st64)
+{
+    typedef int (__cdecl *fstati64_fn)(int, struct _stati64 *);
+    static fstati64_fn p_fstati64 = NULL;
+    static int probed = 0;
+
+    if (!probed) {
+        p_fstati64 = (fstati64_fn)resolve_msvcrt("_fstati64");
+        probed = 1;
+    }
+    if (!p_fstati64 || !st64) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    struct _stati64 si64;
+    int rc = p_fstati64(fd, &si64);
+    if (rc != 0) return rc;
+
+    st64->st_dev   = si64.st_dev;
+    st64->st_ino   = si64.st_ino;
+    st64->st_mode  = si64.st_mode;
+    st64->st_nlink = si64.st_nlink;
+    st64->st_uid   = si64.st_uid;
+    st64->st_gid   = si64.st_gid;
+    st64->st_rdev  = si64.st_rdev;
+    st64->st_size  = si64.st_size;
+    st64->st_atime = (__time64_t)si64.st_atime;
+    st64->st_mtime = (__time64_t)si64.st_mtime;
+    st64->st_ctime = (__time64_t)si64.st_ctime;
+    return 0;
+}
+
 /* === Linker-symbol interception =========================================== */
 /* For each shimmed function FOO, expose BOTH names the linker can reach:
  *
@@ -582,6 +638,12 @@ __asm__(
     ".globl __imp__qsort_s\n"
     "__imp__qsort_s:\n"
     "\t.long _win98_qsort_s\n"
+    /* _fstat64 is a cdecl C name that already starts with `_`, so the asm
+       decoration is __fstat64 (two leading underscores) and the IAT slot is
+       __imp___fstat64 (three). Same for the win98__fstat64 wrapper. */
+    ".globl __imp___fstat64\n"
+    "__imp___fstat64:\n"
+    "\t.long _win98__fstat64\n"
 
     /* --- Direct-call thunks (.text) ------------------------------------- */
     ".text\n"
@@ -632,4 +694,7 @@ __asm__(
     ".globl _qsort_s\n"
     "_qsort_s:\n"
     "\tjmp _win98_qsort_s\n"
+    ".globl __fstat64\n"
+    "__fstat64:\n"
+    "\tjmp _win98__fstat64\n"
 );

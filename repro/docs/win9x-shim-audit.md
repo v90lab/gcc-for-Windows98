@@ -51,6 +51,7 @@ where relevant.
 | `getnameinfo` (ws2_32) | `gethostbyaddr` + `inet_ntoa` (host) / `getservbyport` (service); numeric fallback both ways | 1 (busybox `xmalloc_sockaddr2dotted`) | low (reverse-DNS only) | **implemented** in shim |
 | `SystemFunction036` (advapi32, aka RtlGenRandom) | `rand()` seeded from `GetTickCount` | 0 (busybox runtime-probes; yescrypt comment in shim is stale) | 0 | safe — shim still useful for stack_chk_guard static binding in mingw-w64 ssp; non-crypto seed is acceptable for the only consumer |
 | `qsort_s` (msvcrt) | reentrant insertion sort | 1 (ctags `sort_r.h`) | 0 | safe — semantically equivalent; insertion sort O(n²) on small inputs is fine for tag tables |
+| `_fstat64` (msvcrt) | wraps `_fstati64` and widens `__time32_t → __time64_t` for the three time fields | mingw-w64 static-stdio init (every `-static` binary that does I/O) | 0 | safe — field-by-field copy; time-field widening is sign-extension. Drops `msvcrt:_fstat64` out of the PE import table on every -static binary linking `-lwin98compat` |
 | `BCryptGenRandom` (bcrypt — bundled DLL shim) | `rand()` seeded from `GetTickCount` | 0 (gnulib runtime-probes; only consumer is libstdc++ random_device at link time) | 0 | safe — non-crypto seed is documented trade-off in AGENTS.md §5.7 |
 
 **Net summary.** One unfixed load-bearing issue remains:
@@ -441,6 +442,34 @@ small arrays.
 
 **Verdict.** Safe. Semantically equivalent to the native API; performance
 overhead negligible for the call sites.
+
+---
+
+## `_fstat64` (msvcrt) → wraps `_fstati64` with widened time fields
+
+**Shim implementation.** [`win98_compat.c`](../win98-compat/src/win98_compat.c)
+`win98__fstat64()` — lazy-resolves `_fstati64` via `GetProcAddress` on
+`msvcrt.dll`, calls it, then copies the result field-by-field into the
+caller's `struct __stat64` widening the three time fields from
+`__time32_t` to `__time64_t` (sign extension). The other fields
+(`st_dev` .. `st_size`) have identical width in both structs.
+
+**Win98 SE export reality.** Win98 SE's `msvcrt.dll` exports `_fstat`
+(32-bit `st_size`) and `_fstati64` (int64 `st_size`, 32-bit time fields)
+— see [`win98se-api-allowlist.json:1741-1742`](../data/win98se-api-allowlist.json#L1741-L1742)
+— but NOT `_fstat64` (int64 size + 64-bit times, an XP-era addition).
+
+**Call sites.** Pre-compiled into mingw-w64's static stdio init, which
+runs in every `-static` binary that does I/O — FILE setup calls
+`_fstat64` on `stdin`/`stdout`/`stderr` to decide whether they're TTYs.
+No source-level callers in our consumer trees; the shim's job is purely
+to replace the IAT slot the linker would otherwise emit pointing at
+msvcrt.
+
+**Verdict.** Safe. The field-width difference is the only behavioral
+divergence and time-field sign-extension preserves the represented
+instant. Dropping `_fstat64` out of every `-static` binary's PE import
+table is what makes static C/C++ smoke tests pass the verifier.
 
 ---
 

@@ -160,7 +160,7 @@ Current coverage:
 - **kernel32**: GetFinalPathNameByHandleA, GetSystemWow64DirectoryA, GetLogicalProcessorInformation, GetSystemTimePreciseAsFileTime, IsWow64Process, GetProcessId, GetConsoleWindow, GetFileSizeEx.
 - **ws2_32**: getaddrinfo, freeaddrinfo, getnameinfo — these are now **real `gethostbyname`-based emulations** on Win9x (not just `EAI_FAIL` stubs); single IPv4 A-record, AI_PASSIVE/AI_NUMERICHOST/AI_NUMERICSERV honored, AI_CANONNAME ignored. Lazy-resolves the underlying Winsock-1.1 primitives via `GetProcAddress` so consumers that link `libwin98compat` but never call getaddrinfo don't grow new ws2_32 imports.
 - **advapi32**: SystemFunction036 (RtlGenRandom).
-- **msvcrt**: qsort_s.
+- **msvcrt**: qsort_s, `_fstat64` (wraps `_fstati64` and widens the three time fields from `__time32_t` → `__time64_t`; Win98 SE's msvcrt has `_fstat`/`_fstati64` but not the XP-era `_fstat64`. Needed because mingw-w64's static stdio init pulls `_fstat64` into every `-static` binary that touches stdio — was silently failing the smoke PE check until pe-check itself was tightened in commit 05e8d24).
 
 For a per-function audit of who-calls-each-shimmed-symbol (cosmetic vs load-bearing, fixed vs unfixed), see [`repro/docs/win9x-shim-audit.md`](repro/docs/win9x-shim-audit.md). Maintain it when you add or remove a shimmed function.
 
