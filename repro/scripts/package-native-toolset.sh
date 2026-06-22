@@ -67,7 +67,24 @@ echo "  Output: $PACKAGE_PATH"
 STAGE=$(mktemp -d -p "$PACKAGE_DIR" gcc-win98-native-zip.XXXXXX)
 trap 'rm -rf "$STAGE"' EXIT INT TERM
 cp -al "$SOURCE_DIR" "$STAGE/gcc_win98"
-( cd "$STAGE" && zip -9 -q -r "$PACKAGE_PATH" gcc_win98 )
+TOTAL_FILES=$(find "$STAGE/gcc_win98" -type f | wc -l)
+echo "  Files to archive: $TOTAL_FILES (progress shown every 100 files)"
+# Drop zip's -q (quiet) so we can filter its "  adding: foo" stream through awk
+# for a one-line-per-100-files counter. Anything zip prints that isn't an
+# "adding:" line (warnings, the final summary, errors) falls through unchanged.
+# pipefail is on, so a zip non-zero exit still fails the script.
+( cd "$STAGE" && zip -9 -r "$PACKAGE_PATH" gcc_win98 2>&1 ) | \
+    awk -v total="$TOTAL_FILES" '
+        /^  adding:/ {
+            n++
+            if (n % 100 == 0 || n == total) {
+                printf "    [%d/%d]\n", n, total
+                fflush()
+            }
+            next
+        }
+        { print; fflush() }
+    '
 
 echo ""
 echo "Package created successfully!"

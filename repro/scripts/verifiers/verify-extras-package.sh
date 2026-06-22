@@ -100,9 +100,11 @@ if [[ "$VERIFY_MODE" == "artifact" ]]; then
     SCAN_ROOT="$TMPDIR_EXTRAS"
 fi
 
-echo "Running Win98 PE compatibility checks across extras binaries..."
+PE_TOTAL=$(find "$SCAN_ROOT" -type f \( -iname '*.exe' -o -iname '*.dll' \) | wc -l)
+echo "Running Win98 PE compatibility checks across $PE_TOTAL extras binaries..."
 PE_PASS=0
 PE_FAIL=0
+PE_N=0
 
 # bcrypt.dll is shipped in this package as a shim (BCryptGenRandom only) so
 # gdb.exe's libstdc++ random_device import resolves on Win98. Tell the PE
@@ -111,6 +113,7 @@ PE_FAIL=0
 export PE_CHECK_BUNDLED_DLLS="bcrypt.dll"
 
 while IFS= read -r pe_path; do
+    PE_N=$((PE_N + 1))
     # `|| true` so set -e doesn't kill us on rc=1 before we get to the
     # case — PE_CHECK_RESULT carries the verdict; we still print and tally.
     pe_check_win98 "$pe_path" || true
@@ -126,6 +129,13 @@ while IFS= read -r pe_path; do
         skip)
             ;;
     esac
+    # Progress every 25 files; the final iteration always prints so the
+    # last partial bucket isn't silent. Failures get their own line above
+    # so the progress line doesn't bury them.
+    if (( PE_N % 25 == 0 )) || (( PE_N == PE_TOTAL )); then
+        printf '  [%d/%d] checked (%d pass, %d fail)\n' \
+            "$PE_N" "$PE_TOTAL" "$PE_PASS" "$PE_FAIL"
+    fi
 done < <(find "$SCAN_ROOT" -type f \( -iname '*.exe' -o -iname '*.dll' \) | sort)
 
 if [[ "$PE_FAIL" -gt 0 ]]; then

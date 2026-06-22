@@ -98,11 +98,14 @@ while IFS= read -r exe_path; do
     check_no_prereq_runtime_imports "$exe_path"
 done < <(find "$SCAN_ROOT" -type f \( -name 'gcc.exe' -o -name 'g++.exe' \) | sort)
 
-echo "Running Win98 PE compatibility checks across extracted binaries..."
+PE_TOTAL=$(find "$SCAN_ROOT" -type f \( -iname '*.exe' -o -iname '*.dll' \) | wc -l)
+echo "Running Win98 PE compatibility checks across $PE_TOTAL extracted binaries..."
 PE_PASS=0
 PE_FAIL=0
+PE_N=0
 
 while IFS= read -r pe_path; do
+    PE_N=$((PE_N + 1))
     # `|| true` so set -e doesn't kill us on rc=1 before we get to the
     # case — PE_CHECK_RESULT carries the verdict; we still print and tally.
     pe_check_win98 "$pe_path" || true
@@ -118,6 +121,13 @@ while IFS= read -r pe_path; do
         skip)
             ;;
     esac
+    # Progress every 25 files; the final iteration always prints so the
+    # last partial bucket isn't silent. Failures get their own line above
+    # so the progress line doesn't bury them.
+    if (( PE_N % 25 == 0 )) || (( PE_N == PE_TOTAL )); then
+        printf '  [%d/%d] checked (%d pass, %d fail)\n' \
+            "$PE_N" "$PE_TOTAL" "$PE_PASS" "$PE_FAIL"
+    fi
 done < <(find "$SCAN_ROOT" -type f \( -iname '*.exe' -o -iname '*.dll' \) | sort)
 
 if [[ "$PE_FAIL" -gt 0 ]]; then
