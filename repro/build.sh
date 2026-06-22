@@ -100,7 +100,12 @@ fi
 # --- Clean if requested -------------------------------------------------------
 if [[ "$CLEAN" == "yes" ]]; then
   echo "[*] Cleaning out/ directory..."
-  rm -rf "$SCRIPT_DIR/out"/*
+  # Recreate the directory rather than `rm out/*`. The glob form omits
+  # dotfiles by default, which silently left status sentinels (.status-*)
+  # AND old-location patch markers (.patches-applied-*) behind across
+  # `--clean` rebuilds. Both classes of dotfile must die for a clean
+  # rebuild to actually be clean.
+  rm -rf "$SCRIPT_DIR/out"
   mkdir -p "$SCRIPT_DIR/out"
   touch "$SCRIPT_DIR/out/.gitkeep"
   # Also clean build/ and logs/ directories inside the container volume

@@ -125,7 +125,21 @@ apply_component() {
     # detection is fragile and was the root cause of the round-5 failure
     # where 0004 hunk 3 reverse-failed because 0007 inserted bbdbg_log
     # calls into its context.
-    local marker_file="${REPRO_DIR}/out/.patches-applied-${component}-${version:-default}"
+    #
+    # Marker lives INSIDE the source dir (was under out/ historically — see
+    # legacy_marker_file below for the migration). Inside-source ties the
+    # marker's lifetime to the source's: a re-fetch / re-clone / docker volume
+    # wipe destroys both together, so the marker can never falsely claim
+    # patches are applied to a source that was just freshly extracted. The
+    # earlier "outside the source tree so git reset doesn't nuke it" rationale
+    # was wrong — `git reset --hard HEAD` does wipe the patches from the
+    # source, so the marker SHOULD be invalidated in that case (and is,
+    # because reset only touches tracked files; the marker is untracked).
+    # `git clean -fd` would wipe it, but `git clean -fd` is paired with
+    # `git reset --hard` in retry-clean / prepare-*.sh, which also wipes
+    # the patches — exactly when the marker should be invalidated.
+    local marker_file="${source_dir}/.patches-applied-${component}-${version:-default}"
+    local legacy_marker_file="${REPRO_DIR}/out/.patches-applied-${component}-${version:-default}"
     local series_hash=""
     if [[ -d "$component_patches_dir" ]]; then
         series_hash=$(cat "${component_patches_dir}"/*.patch 2>/dev/null | sha256sum | cut -d' ' -f1)
@@ -174,13 +188,24 @@ apply_component() {
     fi
 
     if [[ "$failed" -eq 0 ]]; then
-        # Record the series hash so future runs can short-circuit. Marker dir
-        # is the build's out/ — it survives across container restarts and is
-        # outside the source tree (so `git reset` doesn't nuke it).
+        # Record the series hash so future runs can short-circuit. Marker is
+        # written inside the source directory so its lifetime tracks the
+        # source's — re-fetch wipes both together. See the marker comment
+        # above the short-circuit check for the rationale.
         if [[ -n "$series_hash" ]]; then
             mkdir -p "$(dirname "$marker_file")"
             printf '%s\n' "$series_hash" > "$marker_file"
             log "  Wrote marker: $marker_file"
+            # Migration cleanup: prior versions of this script wrote the
+            # marker under repro/out/. The host-bind-mount survived
+            # `docker compose down -v`, then masqueraded as a valid
+            # "patches applied" signal against a freshly-cloned source.
+            # Drop the legacy file now that the in-source marker is the
+            # source of truth.
+            if [[ -f "$legacy_marker_file" ]]; then
+                rm -f "$legacy_marker_file"
+                log "  Removed legacy marker: $legacy_marker_file"
+            fi
         fi
         log "=== All patches applied successfully for ${component} (${version}) ==="
         return 0
