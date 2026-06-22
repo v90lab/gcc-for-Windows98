@@ -43,6 +43,15 @@ PASS_PE=0; FAIL_PE=0
 PASS_RUN=0; FAIL_RUN=0
 
 # ── Helper: Win98 PE import check ────────────────────────────────────────────
+# The dynamic-link test variants (everything without "_static" in the name) need
+# libgcc_s_dw2-1.dll / libstdc++-6.dll / libssp-0.dll / libquadmath-0.dll.
+# The smoke harness ships those DLLs next to each exe via run_under_wine() — that
+# is the shipping intent for the dynamic variants, so they should pass PE check
+# under the §5.7 bundled-DLL escape hatch. Note this only suppresses the
+# "DLL not present on Win98" check; per-function checks still run, so e.g. a
+# stat-family or other-CRT regression in the bundled DLL itself would still fail.
+export PE_CHECK_BUNDLED_DLLS="libgcc_s_dw2-1.dll libstdc++-6.dll libssp-0.dll libquadmath-0.dll"
+
 check_pe_win98() {
     local exe="$1"
     local rel="${exe#$BUILD_DIR/}"
@@ -118,6 +127,16 @@ if [[ ! -f "$TOOLCHAIN_FILE" ]]; then
     die "Toolchain file not found: $TOOLCHAIN_FILE"
 fi
 
+# Wipe the build dir on every smoke run. The smoke step only re-runs when its
+# declared inputs (toolchain file, tests/CMakeLists.txt, the package manifest)
+# are newer than the sentinel — meaning something material changed. CMake's
+# Ninja generator does NOT reliably detect linker-flag changes in an existing
+# build dir (the smoke harness's hard lesson: a toolchain-file edit that added
+# `-Wl,--whole-archive -lwin98compat -Wl,--no-whole-archive` left ninja saying
+# "no work to do" because the .o files were unchanged and the .exes were newer
+# than them; the link rule with the stale command was never re-fired). A clean
+# build is cheap here (~40 small tests in seconds) and removes the trap.
+rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 cmake -S "$TEST_SRC" \

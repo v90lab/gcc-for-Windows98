@@ -112,11 +112,19 @@ check_containers() {
 #     backstop for direct invocations (docker compose exec ...) and is fine to
 #     keep but no longer load-bearing here.
 # The cross-sysroot libwin98compat.a is the canonical "the shim changed" signal.
-# Declared as an input to every native/extras step that either (a) directly
-# links -lwin98compat at build time, or (b) consumes the produced binaries
-# downstream (verify / strip / package / manifest). When the shim is rebuilt
-# this re-fires the entire affected chain instead of silently shipping a
-# half-updated toolset.
+# Declared as an input to every step that either (a) directly links
+# -lwin98compat at build time, or (b) consumes the produced binaries / archive
+# contents downstream (verify / strip / package / manifest). When the shim is
+# rebuilt this re-fires the entire affected chain instead of silently shipping
+# a half-updated toolset. CROSS side matters too: package-cross-toolset re-tars
+# /work/out/toolchain into the cross tarball that the consumer image's COPY
+# reads — without this input, the cross tarball stays stale, the consumer
+# image's /opt/cross-toolset/...libwin98compat.a stays at the previous build,
+# and the smoke-cmake-build step links against a shim missing the new
+# wrappers (caught the hard way: _fstat64 added to the shim source rebuilt
+# the .a in /work/out, but the cross package wasn't re-tarred so the smoke
+# binaries still imported msvcrt:_fstat64 from msvcrt's import lib). See
+# §3.4 in AGENTS.md.
 WIN98_COMPAT_AR="out/toolchain/i686-w64-mingw32/lib/libwin98compat.a"
 
 declare -a CROSS_STEPS=(
@@ -134,8 +142,8 @@ declare -a CROSS_STEPS=(
   "verify-cross-compiler-features|verify-cross-compiler-features.sh|Verify cross compiler features|builder"
   "build-win98-compat|build-win98-compat.sh|Build Win98 API compat shim (libwin98compat.a)|builder|win98-compat/src/win98_compat.c:win98-compat/include/win98_compat.h"
   "install-pe-checker|install-pe-checker.sh|Bundle pe-win98-check.sh + data into cross toolchain|builder|scripts/verifiers/pe-win98-check.sh:data/win98se-api-allowlist.json:data/win98-behavioral-denylist.json"
-  "package|package-cross-toolset.sh|Package cross toolchain|builder"
-  "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder"
+  "package|package-cross-toolset.sh|Package cross toolchain|builder|${WIN98_COMPAT_AR}"
+  "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder|${WIN98_COMPAT_AR}"
 )
 
 declare -a NATIVE_STEPS=(
