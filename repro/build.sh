@@ -133,6 +133,14 @@ EOF
   fi
 fi
 
+# --- Pre-create the external ccache volume ----------------------------------
+# Declared `external: true` in docker-compose.yml so `clean-rebuild.sh`'s
+# `compose down -v` leaves it intact across full rebuilds. External volumes
+# must exist before `compose up`, so create it on first run. Idempotent —
+# `docker volume create` is a no-op when the volume already exists.
+docker volume inspect gcc-win98-ccache >/dev/null 2>&1 || \
+  docker volume create gcc-win98-ccache >/dev/null
+
 # --- Build Docker images (toolchain-builder only; consumer built after artifacts exist) ---
 echo "[*] Building toolchain-builder Docker image..."
 

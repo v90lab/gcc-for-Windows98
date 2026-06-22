@@ -17,8 +17,8 @@ set -euo pipefail
 #   repro/build/ and repro/src/ are shadowed and unreachable.
 #
 # This script handles that volume wipe, plus removes the project's Docker
-# images so the Dockerfile changes (apt list, pip3 install meson, etc.)
-# are re-applied.
+# images so the Dockerfile changes (apt list, pip3 install meson, ccache,
+# etc.) are re-applied.
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,6 +43,10 @@ This destroys all build state. Source clones, intermediate build artifacts,
 and built images all go. The next build starts from zero (~1-2 hours).
 Preserved: .env, src/ on host (which is empty anyway on Docker volume hosts),
 config.json, scripts/, and anything else under repro/ that isn't out/build/logs.
+The ccache volume (gcc-win98-ccache) is declared external in docker-compose
+and is intentionally NOT wiped — the compiler cache survives so the
+post-rebuild .o phase still cache-hits where possible. To also nuke ccache:
+  docker volume rm gcc-win98-ccache
 
 EOF
 

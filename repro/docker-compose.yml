@@ -26,6 +26,11 @@ services:
       # workspace).
       - gcc-win98-build:/work/build
       - gcc-win98-src:/work/src
+      # ccache cache dir. Declared `external: true` below so it survives
+      # `docker compose down -v` — clean-rebuild.sh wipes build/src but the
+      # compiler cache (typically 100s of MB to a few GB) stays. To wipe it
+      # explicitly: `docker volume rm gcc-win98-ccache` after `compose down`.
+      - gcc-win98-ccache:/root/.ccache
     # Keep the container alive in detached mode. The previous tty+stdin_open
     # combo works on Linux but Docker Desktop on Windows lets bash exit
     # immediately when no terminal is attached.
@@ -61,3 +66,9 @@ volumes:
   # To wipe either across builds: `docker compose down -v`.
   gcc-win98-build:
   gcc-win98-src:
+  # ccache cache; external so its lifecycle is decoupled from compose.
+  # `docker compose down -v` will NOT touch it — only an explicit
+  # `docker volume rm gcc-win98-ccache` wipes it. build.sh pre-creates
+  # the volume on first run.
+  gcc-win98-ccache:
+    external: true

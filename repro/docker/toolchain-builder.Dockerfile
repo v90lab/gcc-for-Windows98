@@ -19,6 +19,7 @@ RUN ./apt-mirror-selector.sh -y --no-install-recommends \
       build-essential \
       bison \
       ca-certificates \
+      ccache \
       cmake \
       curl \
       file \
@@ -59,6 +60,26 @@ RUN ./apt-mirror-selector.sh -y --no-install-recommends \
 # Pip-install on top of the system Python — lands at /usr/local/bin/meson
 # which precedes /usr/bin/meson on PATH.
 RUN pip3 install --no-cache-dir meson
+
+# ccache integration:
+#   * Ubuntu's `ccache` package ships /usr/lib/ccache/{gcc,g++,cc,c++} symlinks
+#     that wrap host gcc/g++ — putting /usr/lib/ccache in PATH (below) lets
+#     build-cross-*.sh transparently pick up ccache when compiling the
+#     cross-toolchain itself.
+#   * For build-native-*.sh / extras, every script does
+#       `export PATH="$CROSS_BIN_DIR:$PATH"`
+#     which puts /work/out/toolchain/bin (the real cross gcc) ahead of any
+#     ccache shim dir we'd add to PATH. So PATH-shim alone won't catch the
+#     native-build calls — common.sh sets CC/CXX to "ccache <cross-gcc>"
+#     directly when sourced from a build-native-*.sh.
+#   * Cache dir is the external `gcc-win98-ccache` docker volume (declared
+#     in docker-compose.yml). External lifecycle so `clean-rebuild.sh`'s
+#     `docker compose down -v` leaves it intact; nuke at will with
+#     `docker volume rm gcc-win98-ccache` or `ccache -C` inside the container.
+ENV PATH="/usr/lib/ccache:${PATH}"
+ENV CCACHE_DIR=/root/.ccache
+ENV CCACHE_MAXSIZE=10G
+ENV CCACHE_COMPRESS=1
 
 WORKDIR /work
 

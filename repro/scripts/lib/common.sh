@@ -102,6 +102,42 @@ WIN98_TARGET_LDFLAGS="-Wl,--disable-dynamicbase -Wl,--disable-nxcompat -Wl,--maj
 WIN98_COMPAT_CPPFLAGS=""
 WIN98_COMPAT_LDFLAGS="-Wl,--whole-archive -lwin98compat -Wl,--no-whole-archive"
 
+# --- ccache integration (build-native-*.sh) ----------------------------------
+# Cross-toolchain builds (build-cross-*.sh) use the build-host gcc, which
+# Ubuntu's /usr/lib/ccache symlinks transparently wrap via PATH (set in the
+# toolchain-builder Dockerfile). Native/extras builds (build-native-*.sh)
+# are different: every one of those scripts does
+#   export PATH="$CROSS_BIN_DIR:$PATH"
+# which puts the real cross compiler ahead of any ccache shim dir, so PATH
+# interception alone doesn't catch them. The robust mechanism is the same
+# one most projects use: set CC/CXX explicitly to "ccache <real-compiler>".
+# autoconf records the exact CC/CXX strings into the generated Makefile, so
+# every make-driven compile lands in ccache.
+#
+# Only kick in when:
+#   * ccache is installed (toolchain-builder image is the only place we
+#     install it; status/host scripts that source common.sh won't have it)
+#   * the sourcing script is named build-native-*.sh
+#   * the caller hasn't already set CC/CXX (respect explicit overrides)
+#
+# Big payoff: a libwin98compat.a edit invalidates downstream build sentinels;
+# the next ./build.sh wipes $BUILD_DIR for gdb / native-gcc / etc. and does a
+# full reconfigure + recompile. Without ccache that's tens of minutes for gcc
+# and ~5+ minutes for gdb. With ccache, the .c -> .o phase cache-hits across
+# the board (the shim is a static archive — it doesn't change any .c file's
+# preprocessed text) and only the final link runs.
+_caller_script="$(basename "${BASH_SOURCE[1]:-}" 2>/dev/null || true)"
+case "$_caller_script" in
+    build-native-*.sh)
+        if command -v ccache >/dev/null 2>&1; then
+            : "${CC:=ccache ${TARGET}-gcc}"
+            : "${CXX:=ccache ${TARGET}-g++}"
+            export CC CXX
+        fi
+        ;;
+esac
+unset _caller_script
+
 # Status sentinel scope prevents false resume/skip across different build
 # configurations (e.g., matrix/target changes).
 STATUS_SCOPE="${STATUS_SCOPE:-${TARGET}__m${MATRIX}}"

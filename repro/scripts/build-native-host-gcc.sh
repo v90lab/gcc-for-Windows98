@@ -69,6 +69,19 @@ cd "$BUILD_DIR"
 # - The native-host compiler links against the explicit mingw-deps prefix.
 # - --disable-lto: Avoids liblto_plugin.so issues with the build compiler
 # - CC_FOR_BUILD/CXX_FOR_BUILD: Use system gcc which has working cc1plus
+# - ccache wrapping: GCC uses THREE separate compiler-variable namespaces.
+#     * CC/CXX (from common.sh env) — HOST-stage compilation: the Win98 gcc
+#       binary itself (gcc.exe, cc1.exe, cc1plus.exe). Already wrapped.
+#     * CC_FOR_BUILD/CXX_FOR_BUILD — build-side helpers (gen* programs that
+#       run during the build to produce source). PATH-shim from /usr/lib/ccache
+#       can't wrap these because the script hardcodes absolute /usr/bin/gcc;
+#       prefix with `ccache` explicitly.
+#     * CC_FOR_TARGET/CXX_FOR_TARGET/GCC_FOR_TARGET — target-library
+#       compilation (libgcc, libstdc++, multilib lib32/lib64). Derived from
+#       --target=, NOT inherited from CC; same PATH-shim defeat. Without the
+#       explicit `ccache` prefix here, the lib32/* phase runs uncached even
+#       on rebuilds where every input is unchanged. (Confirmed via `ccache -s`
+#       showing 0 hit/miss delta during the target-libs phase.)
 
 log "using native dependency prefix: $MINGW_DEPS_DIR"
 
@@ -104,8 +117,11 @@ run_logged configure-native-host-gcc.log "$SRC_DIR/configure" \
     --disable-libstdcxx-pch \
     --disable-lto \
     --without-isl \
-    CC_FOR_BUILD="/usr/bin/gcc" \
-    CXX_FOR_BUILD="/usr/bin/g++" \
+    CC_FOR_BUILD="ccache /usr/bin/gcc" \
+    CXX_FOR_BUILD="ccache /usr/bin/g++" \
+    CC_FOR_TARGET="ccache ${TARGET}-gcc" \
+    CXX_FOR_TARGET="ccache ${TARGET}-g++" \
+    GCC_FOR_TARGET="ccache ${TARGET}-gcc" \
     glibcxx_cv_stdio_eof=-1 \
     glibcxx_cv_stdio_seek_cur=1 \
     glibcxx_cv_stdio_seek_set=0 \
