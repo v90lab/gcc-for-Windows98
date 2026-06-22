@@ -170,8 +170,11 @@ run_logged build-native-muon.log meson setup \
     "$CROSS_BUILD_DIR" "$MUON_SRC"
 
 # === STEP 4: Build ===
-log "building muon for $TARGET"
-run_logged build-native-muon.log ninja -C "$CROSS_BUILD_DIR"
+# Ninja defaults to `nproc + 2` parallel jobs, ignoring our JOBS budget
+# (so a build.sh --jobs 4 run would still saturate the host on muon's link
+# step). Pass it explicitly to match every other build-native-*.sh script.
+log "building muon for $TARGET with -j$JOBS"
+run_logged build-native-muon.log ninja -j"$JOBS" -C "$CROSS_BUILD_DIR"
 
 # === STEP 5: Install ===
 # meson install would try to honor a DESTDIR-style install and may want to

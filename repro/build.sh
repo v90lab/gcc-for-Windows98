@@ -216,10 +216,14 @@ echo "[*] Starting consumer service..."
 docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d consumer
 
 # --- Run smoke tests in consumer container ------------------------------------
+# Forward JOBS into the smoke pipeline. Without this, run-smoke-pipeline.sh's
+# `JOBS="${JOBS:-4}"` falls back to 4 — meaning a build.sh --jobs 16 invocation
+# would run the two CMake+Ninja smoke builds (cross + native) under-parallel
+# regardless of what the user requested.
 echo "[*] Running smoke test pipeline via scripts/run-smoke-pipeline.sh..."
 (
   cd "$SCRIPT_DIR"
-  MATRIX="$MATRIX" ./scripts/run-smoke-pipeline.sh
+  JOBS="$JOBS" MATRIX="$MATRIX" ./scripts/run-smoke-pipeline.sh
 )
 
 SMOKE_EXIT=$?

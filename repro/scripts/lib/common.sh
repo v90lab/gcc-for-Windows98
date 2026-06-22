@@ -626,10 +626,18 @@ consumer_exec() {
 }
 
 # Run a named script inside the consumer container.
+# Forward JOBS / TARGET / MATRIX through `env` so common.sh inside the
+# container picks up the host's job budget instead of falling back to nproc.
+# Without this, common.sh's load-time `log "... JOBS=$JOBS ..."` prints the
+# container's nproc value while downstream scripts (smoke-cmake-build.sh)
+# pick up their JOBS from positional arg 2 — confusing on inspection of the
+# logs. Mirrors builder_script.
 consumer_script() {
   local script_rel="$1"
   shift
   local full_path
   full_path="$(in_container_path "/workspace/scripts/$script_rel")"
-  docker compose -f "$PROJECT_DIR/docker-compose.yml" exec -T consumer bash "$full_path" "$@"
+  docker compose -f "$PROJECT_DIR/docker-compose.yml" exec -T consumer \
+    env JOBS="$JOBS" TARGET="$TARGET" MATRIX="$MATRIX" \
+    bash "$full_path" "$@"
 }
