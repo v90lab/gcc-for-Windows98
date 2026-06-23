@@ -1,15 +1,19 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # ============================================================================
-# pe-win98-check.sh — Shared Win98 PE compatibility checker
+# pe-win98-check.sh — Shared Win98 PE compatibility checker (POSIX sh)
 # ============================================================================
 # Can be SOURCED by other scripts or CALLED directly as a CLI tool.
+# Runs unmodified under bash, dash, and busybox-w32 ash — so the same script
+# ships in (a) the build environment, (b) the cross-toolchain tarball, and
+# (c) the extras toolset on Win98.
 #
-# When sourced, provides:
+# Public interface (sourced use):
+#
 #   pe_check_win98 <exe>
 #     Inspects the PE binary at <exe> using objdump. Runs every check phase
 #     (DLL substring, allowlist, behavioral denylist, OS version) to completion
-#     so a single call surfaces every Win98 incompatibility in the binary —
-#     not just the first one. PE_CHECK_FAIL_REASON is the "; "-joined list.
+#     so a single call surfaces every Win98 incompatibility — not just the
+#     first one. PE_CHECK_FAIL_REASON is the "; "-joined list.
 #     Returns:
 #       0  — Win98 compatible
 #       1  — incompatible (sets PE_CHECK_FAIL_REASON)
@@ -17,142 +21,139 @@
 #     Sets these variables on every call:
 #       PE_CHECK_RESULT       "pass" | "fail" | "skip"
 #       PE_CHECK_FAIL_REASON  human-readable failure description, "; "-joined
-#                             across all findings (non-empty on fail)
-#       PE_CHECK_BAD_IMPORT   FIRST offending DLL name (non-empty if any
-#                             DLL-level failure was recorded)
-#       PE_CHECK_BAD_FUNCTION FIRST offending DLL:function (non-empty if any
-#                             import-level failure was recorded)
-#       PE_CHECK_BAD_KIND     "missing" if the function isn't in the allowlist,
-#                             "denied"  if it's in the allowlist but on the
-#                                       behavioral denylist (stub-only on Win98);
-#                             reflects the FIRST failure recorded
-#       PE_CHECK_OS_MAJOR     MajorOSVersion integer (empty if not found)
-#       PE_CHECK_OS_MINOR     MinorOSVersion integer (empty if not found)
-#       PE_CHECK_SUBSYS_MAJOR MajorSubsystemVersion integer (empty if not found)
-#       PE_CHECK_SUBSYS_MINOR MinorSubsystemVersion integer (empty if not found)
-#     Note: the three PE_CHECK_BAD_* scalars are first-failure for back-compat
-#     with the documented API; FAIL_REASON is the authoritative full list.
+#       PE_CHECK_BAD_IMPORT   FIRST offending DLL name
+#       PE_CHECK_BAD_FUNCTION FIRST offending DLL:function
+#       PE_CHECK_BAD_KIND     "missing" | "denied" (FIRST recorded)
+#       PE_CHECK_OS_MAJOR     MajorOSystemVersion integer (empty if not found)
+#       PE_CHECK_OS_MINOR     MinorOSystemVersion integer
+#       PE_CHECK_SUBSYS_MAJOR MajorSubsystemVersion integer
+#       PE_CHECK_SUBSYS_MINOR MinorSubsystemVersion integer
 #
-#   PE_FORBIDDEN_IMPORT_PATTERNS
-#     Array of lower-case substring patterns that must not appear in DLL imports.
+# Environment variables:
+#   PE_CHECK_ALLOWLIST    path to win98se-api-allowlist.json
+#                         (default: auto-resolved relative to this script)
+#                         "" = skip per-function check entirely
+#   PE_CHECK_DENYLIST     path to win98-behavioral-denylist.json
+#                         (default: auto-resolved)
+#                         "" = skip denylist check entirely
+#   PE_CHECK_BUNDLED_DLLS space-separated list of DLL basenames whose imports
+#                         should be passed through (shims shipped alongside)
+#   OBJDUMP               objdump binary to use (default: probe PATH for
+#                         `objdump` then `i686-w64-mingw32-objdump`)
 #
-# When called directly:
+# Direct CLI usage:
 #   pe-win98-check.sh <exe> [<exe2> ...]
 #   Exit 0 if all pass; 1 if any fail.
 #
-# Per-import allowlist:
-#   The Win98 system DLL export surface lives at
-#   repro/data/win98se-api-allowlist.json (generated from a real Win98 SE
-#   install by scripts/utils/generate-win98-api-allowlist.py). When that
-#   file is present and jq is available, the checker also rejects:
-#     * imports from any DLL that isn't in the snapshot (e.g. bcrypt.dll)
-#     * function imports not present in the snapshot DLL's export table
-#       (e.g. kernel32!GetFileInformationByHandleEx)
-#   Set PE_CHECK_ALLOWLIST to override the path; set PE_CHECK_ALLOWLIST=""
-#   to disable the per-function check (the DLL-substring + OS-version checks
-#   still run).
-#
-# Behavioral denylist:
-#   Some symbols in the allowlist (especially advapi32 NT-security APIs)
-#   exist in Win98 SE's export table as stubs that always return failure on
-#   the Win9x kernel. They bind cleanly at PE load time but are non-functional
-#   at runtime. The denylist at repro/data/win98-behavioral-denylist.json
-#   names those — any symbol listed there is rejected even though the
-#   allowlist accepts it. PE_CHECK_FAIL_REASON for these reads "Win98
-#   stub-only (binds but non-functional)". Set PE_CHECK_DENYLIST="" to
-#   disable, or override the path.
-#
-# Bundled-DLL exception:
-#   PE_CHECK_BUNDLED_DLLS — space-separated list of DLL basenames (case-
-#   insensitive, e.g. "bcrypt.dll") that should be treated as if shipped
-#   in the same package as the binary under test. Imports from those DLLs
-#   skip both the "is this DLL on Win98?" check and the per-function
-#   export-table check. Use this for shims (e.g. our bcrypt.dll
-#   BCryptGenRandom stub) that satisfy a dynamic-link dependency the
-#   loader's App Directory search will resolve at runtime.
+# Design notes (for the maintainer):
+#   * All matching logic runs inside a single awk pass over the dump. The
+#     allowlist + denylist are pre-flattened by jq to a "tag!arg[!arg]" stream
+#     that awk's BEGIN block loads into associative arrays. Two jq calls
+#     total, vs. one-jq-per-imported-DLL in the prior bash implementation —
+#     meaningful win on Win98 where each fork/exec is ~50-100ms.
+#   * Self-locator: $BASH_SOURCE (bash) / $0 (everything else). No symlink
+#     walking — FAT32 has no symlinks; for the cross-tarball Linux symlink
+#     wrapper (bin/pe-win98-check → ../share/win98-verify/...), the resolver
+#     explicitly probes ../share/win98-verify/ relative to self_dir.
+#   * objdump-import-row parsing: $NF strategy (last whitespace-separated
+#     field is the symbol). Works for both the 3-col and 4-col objdump
+#     layouts AGENTS.md §5.9 documents, without needing a layout sniff.
 # ============================================================================
 
-# DLL name substrings (lower-cased) that must not appear in PE import tables.
-PE_FORBIDDEN_IMPORT_PATTERNS=(
-    "api-ms-win-"
-    "ucrtbase.dll"
-    "vcruntime"
-)
+# Don't use `set -u` / `set -e` here — this file may be sourced from scripts
+# with their own shell-option preferences. Be careful with ${var:-} on every
+# maybe-unset access.
 
-# Resolve the allowlist + denylist JSON. Two supported layouts:
-#   * Repo layout:           repro/scripts/verifiers/pe-win98-check.sh
-#                            repro/data/{allowlist,denylist}.json
-#                            (data resolves at $self/../../data/)
-#   * Flat installed layout: $toolchain/share/win98-verify/pe-win98-check.sh
-#                            $toolchain/share/win98-verify/{allowlist,denylist}.json
-#                            (data sits next to the script)
-# The repo layout is tried first so in-tree behavior is unchanged; the flat
-# layout is the fallback used by the cross-toolchain bundle. PE_CHECK_ALLOWLIST
-# / PE_CHECK_DENYLIST still override both.
-#
-# When invoked via the cross-toolchain $PREFIX/bin/pe-win98-check wrapper
-# symlink, BASH_SOURCE[0] is the symlink path itself — a naive
-# `cd $(dirname $BASH_SOURCE) && pwd` leaves us in bin/, both candidate
-# paths miss, and the per-function check silently skips. Walk symlinks
-# until we land on the real script before computing self_dir.
+# ----------------------------------------------------------------------------
+# Self-location and data-file defaults.
+# ----------------------------------------------------------------------------
+# $BASH_SOURCE is set in bash (when sourced or executed); in ash/dash it's
+# unset and we fall back to $0. For sourced use in non-bash shells the caller
+# must set PE_CHECK_ALLOWLIST / PE_CHECK_DENYLIST explicitly — the auto-locate
+# can only work for CLI invocation there.
+_pe_check_self="${BASH_SOURCE:-$0}"
+
 _pe_check_resolve_data() {
-    local basename="$1"
-    local src="${BASH_SOURCE[0]}"
-    while [[ -L "$src" ]]; do
-        local link_dir
-        link_dir="$(cd -P "$(dirname "$src")" && pwd)"
-        src="$(readlink "$src")"
-        [[ "$src" != /* ]] && src="$link_dir/$src"
-    done
-    local self_dir
-    self_dir="$(cd -P "$(dirname "$src")" && pwd)"
-    if [[ -f "$self_dir/../../data/$basename" ]]; then
-        printf '%s\n' "$self_dir/../../data/$basename"
+    _basename=$1
+    _self_dir=$(cd -P "$(dirname "$_pe_check_self")" 2>/dev/null && pwd)
+    if [ -z "$_self_dir" ]; then
+        # Couldn't locate self — return repo-relative path; caller's existence
+        # check will fall through to the degraded-mode warning.
+        printf '%s\n' "../../data/$_basename"
         return
     fi
-    if [[ -f "$self_dir/$basename" ]]; then
-        printf '%s\n' "$self_dir/$basename"
+    # Repo layout: scripts/verifiers/<this> + ../data/<file>
+    if [ -f "$_self_dir/../../data/$_basename" ]; then
+        printf '%s\n' "$_self_dir/../../data/$_basename"
         return
     fi
-    # Nothing found — return the repo-relative path so error messages stay
-    # readable. The caller falls through to a degraded mode when the file
-    # doesn't exist anyway.
-    printf '%s\n' "$self_dir/../../data/$basename"
+    # Flat installed layout: share/win98-verify/<this> + share/win98-verify/<file>
+    if [ -f "$_self_dir/$_basename" ]; then
+        printf '%s\n' "$_self_dir/$_basename"
+        return
+    fi
+    # Cross-tarball bin/ wrapper layout: bin/pe-win98-check symlinks onto
+    # ../share/win98-verify/pe-win98-check.sh, but `dirname $0` gives bin/
+    # (we have no readlink in busybox). Probe ../share/win98-verify/ for
+    # the data file so the wrapper invocation works without symlink walking.
+    if [ -f "$_self_dir/../share/win98-verify/$_basename" ]; then
+        printf '%s\n' "$_self_dir/../share/win98-verify/$_basename"
+        return
+    fi
+    printf '%s\n' "$_self_dir/../../data/$_basename"
 }
 
-_pe_check_default_allowlist() {
-    _pe_check_resolve_data "win98se-api-allowlist.json"
-}
+: "${PE_CHECK_ALLOWLIST=$(_pe_check_resolve_data win98se-api-allowlist.json)}"
+: "${PE_CHECK_DENYLIST=$(_pe_check_resolve_data win98-behavioral-denylist.json)}"
 
-_pe_check_default_denylist() {
-    _pe_check_resolve_data "win98-behavioral-denylist.json"
-}
+# Back-compat aliases — the install scripts call these to verify the bundled
+# checker resolves its data files post-install. Kept here as named entry
+# points so the install-pe-checker* verification hooks don't have to grow
+# new code when the resolver changes shape.
+_pe_check_default_allowlist() { _pe_check_resolve_data "win98se-api-allowlist.json"; }
+_pe_check_default_denylist()  { _pe_check_resolve_data "win98-behavioral-denylist.json"; }
 
-: "${PE_CHECK_ALLOWLIST=$(_pe_check_default_allowlist)}"
-: "${PE_CHECK_DENYLIST=$(_pe_check_default_denylist)}"
-
-# One-shot warning when the per-function/denylist check can't run. The cheaper
-# DLL-substring + OS-version checks still cover the most common forbidden
-# imports (ucrt, vcruntime, api-ms-win-*), so the binary may still get a
-# correct [FAIL]. But silently skipping the per-function check led to a real
-# false-PASS on the consumer image (gdb.exe imports bcrypt.dll → DLL not on
-# Win98, but checker returned rc=0). Loud is better than silent.
+# ----------------------------------------------------------------------------
+# Degraded-mode one-shot warning. Mirrors the bash version's behavior so
+# downstream users see the same "we ran with reduced coverage" signal.
+# ----------------------------------------------------------------------------
+_PE_CHECK_WARNED_DEGRADED=
 _pe_check_warn_degraded_once() {
-    if [[ -n "${_PE_CHECK_WARNED_DEGRADED:-}" ]]; then
-        return
-    fi
+    if [ -n "$_PE_CHECK_WARNED_DEGRADED" ]; then return; fi
     _PE_CHECK_WARNED_DEGRADED=1
-    local reason="$1"
-    printf '[WARN] pe-win98-check: %s\n' "$reason" >&2
+    printf '[WARN] pe-win98-check: %s\n' "$1" >&2
     printf '[WARN] pe-win98-check: per-function and behavioral-denylist checks SKIPPED — a binary that imports an unknown DLL or a stub-only export may falsely report PASS.\n' >&2
 }
 
-# pe_check_win98 <exe>
-# See header for return values and variable side-effects.
-pe_check_win98() {
-    local exe="$1"
+# ----------------------------------------------------------------------------
+# objdump probe. Cross-toolchain bin/ on Linux only ships
+# i686-w64-mingw32-objdump; native toolset on Win98 ships both. Honor the
+# OBJDUMP env override first (also fixes the latent hardcoded `objdump` bug
+# in the old script).
+# ----------------------------------------------------------------------------
+_pe_check_find_objdump() {
+    if [ -n "${OBJDUMP:-}" ] && command -v "$OBJDUMP" >/dev/null 2>&1; then
+        printf '%s\n' "$OBJDUMP"
+        return 0
+    fi
+    if command -v objdump >/dev/null 2>&1; then
+        printf '%s\n' "objdump"
+        return 0
+    fi
+    if command -v i686-w64-mingw32-objdump >/dev/null 2>&1; then
+        printf '%s\n' "i686-w64-mingw32-objdump"
+        return 0
+    fi
+    return 1
+}
 
-    # Reset output variables.
+# ----------------------------------------------------------------------------
+# pe_check_win98 <exe>
+# ----------------------------------------------------------------------------
+pe_check_win98() {
+    _exe=$1
+
+    # Reset all output globals.
     PE_CHECK_RESULT=""
     PE_CHECK_FAIL_REASON=""
     PE_CHECK_BAD_IMPORT=""
@@ -163,313 +164,332 @@ pe_check_win98() {
     PE_CHECK_SUBSYS_MAJOR=""
     PE_CHECK_SUBSYS_MINOR=""
 
-    # Try to read the PE header with objdump.
-    local dump
-    if ! dump=$(objdump -p "$exe" 2>/dev/null); then
+    _objdump=$(_pe_check_find_objdump) || {
+        PE_CHECK_RESULT="skip"
+        return 2
+    }
+
+    # Per-call tempdir (no trap — sourced callers may have their own).
+    _tmpdir=$(mktemp -d 2>/dev/null) || _tmpdir="${TMPDIR:-/tmp}/pe-check.$$"
+    mkdir -p "$_tmpdir" 2>/dev/null || {
+        PE_CHECK_RESULT="skip"
+        return 2
+    }
+
+    # Dump the PE header. Failure here means not a PE / objdump rejected.
+    if ! "$_objdump" -p "$_exe" >"$_tmpdir/dump" 2>/dev/null; then
+        rm -rf "$_tmpdir"
         PE_CHECK_RESULT="skip"
         return 2
     fi
 
-    local fail=0
-    # `reasons` and `_substring_flagged` are local but reachable via dynamic
-    # scoping from _pe_check_allowlist — that helper appends each finding it
-    # discovers, mirroring how this top-level loop does its own DLL-substring
-    # appends. Tracking substring-hit DLLs here lets the inner function skip
-    # the import rows of an already-flagged DLL (otherwise a ucrt or
-    # vcruntime hit would explode into one "DLL not present" plus one
-    # "import not available" line per imported symbol).
-    local reasons=()
-    declare -A _substring_flagged=()
-
-    # ── DLL-name substring check (cheap; runs first) ─────────────────────────
-    # All-results mode: don't bail on first match; collect every forbidden
-    # DLL the binary imports. Most binaries hit zero or one of these, but
-    # the loop must keep scanning so the caller sees the full set.
-    while IFS= read -r dll_name; do
-        local dll_lc="${dll_name,,}"
-        for pat in "${PE_FORBIDDEN_IMPORT_PATTERNS[@]}"; do
-            if [[ "$dll_lc" == *"$pat"* ]]; then
-                : "${PE_CHECK_BAD_IMPORT:=$dll_name}"
-                reasons+=("forbidden import: $dll_name")
-                _substring_flagged["$dll_lc"]=1
-                fail=1
-                break
-            fi
-        done
-    done < <(printf '%s\n' "$dump" | awk '/DLL Name:/ {print $3}')
-
-    # ── Per-import allowlist + denylist check ────────────────────────────────
-    #    Allowlist: DLL must be in snapshot, every named function must be in
-    #    that DLL's export list.
-    #    Denylist: if the function IS exported by Win98 SE but is on the
-    #    behavioral denylist (stub-only — binds but always fails at runtime),
-    #    reject it with a distinct reason.
-    #
-    #    Always runs when configured (no early-exit on substring failures),
-    #    so a binary that imports both ucrt and a bunch of Vista+ kernel32
-    #    symbols reports both classes of problem in one pass.
-    #
-    #    PE_CHECK_ALLOWLIST="" (explicit empty) means "skip the per-function
-    #    check, don't warn" — caller has opted out. Anything else (default or
-    #    explicit path) but a missing file or missing jq is a *degraded* run
-    #    and gets a one-shot stderr warning so the user knows the checker
-    #    didn't run at full strength.
-    if [[ -n "${PE_CHECK_ALLOWLIST:-}" ]]; then
-        if [[ ! -f "$PE_CHECK_ALLOWLIST" ]]; then
+    # Pre-flatten allowlist + denylist via jq into a stream awk can load
+    # in BEGIN. Two layered fallbacks for degraded modes:
+    #   PE_CHECK_ALLOWLIST=""  -> caller opted out, no warning
+    #   PE_CHECK_ALLOWLIST=<missing file or no jq>  -> warn once
+    : >"$_tmpdir/allow"
+    : >"$_tmpdir/deny"
+    _allow_active=0
+    _deny_active=0
+    if [ -n "${PE_CHECK_ALLOWLIST:-}" ]; then
+        if [ ! -f "$PE_CHECK_ALLOWLIST" ]; then
             _pe_check_warn_degraded_once "allowlist not found at $PE_CHECK_ALLOWLIST"
         elif ! command -v jq >/dev/null 2>&1; then
             _pe_check_warn_degraded_once "jq not available on PATH (required for per-function and behavioral-denylist checks)"
         else
-            # _pe_check_allowlist now appends each finding to `reasons`
-            # itself; no caller-side reason assembly needed.
-            _pe_check_allowlist "$dump" || fail=1
-        fi
-    fi
-
-    # ── PE OS / Subsystem version checks ─────────────────────────────────────
-    # No `exit` in the awk: each of these fields appears exactly once in
-    # `objdump -p`, and `exit` would close the pipe early — when the caller
-    # has set -o pipefail (the verify-*.sh scripts do), the printf gets
-    # SIGPIPE and the assignment fails with 141, killing the whole verify
-    # run. Letting awk read to EOF costs nothing on this small input.
-    PE_CHECK_OS_MAJOR=$(printf '%s\n' "$dump" | awk '/MajorOSystemVersion/ {print $2}')
-    PE_CHECK_OS_MINOR=$(printf '%s\n' "$dump" | awk '/MinorOSystemVersion/ {print $2}')
-    PE_CHECK_SUBSYS_MAJOR=$(printf '%s\n' "$dump" | awk '/MajorSubsystemVersion/ {print $2}')
-    PE_CHECK_SUBSYS_MINOR=$(printf '%s\n' "$dump" | awk '/MinorSubsystemVersion/ {print $2}')
-
-    if [[ -n "$PE_CHECK_OS_MAJOR" && "$PE_CHECK_OS_MAJOR" -gt 4 ]]; then
-        reasons+=("MajorOSVersion=$PE_CHECK_OS_MAJOR (must be ≤ 4 for Win98)")
-        fail=1
-    fi
-    if [[ -n "$PE_CHECK_SUBSYS_MAJOR" && "$PE_CHECK_SUBSYS_MAJOR" -gt 4 ]]; then
-        reasons+=("MajorSubsystemVersion=$PE_CHECK_SUBSYS_MAJOR (must be ≤ 4 for Win98)")
-        fail=1
-    fi
-
-    if [[ "$fail" -eq 0 ]]; then
-        PE_CHECK_RESULT="pass"
-        return 0
-    fi
-
-    # Join reasons with "; ".
-    local joined=""
-    local r
-    for r in "${reasons[@]}"; do
-        [[ -n "$joined" ]] && joined+="; "
-        joined+="$r"
-    done
-    PE_CHECK_FAIL_REASON="$joined"
-    PE_CHECK_RESULT="fail"
-    return 1
-}
-
-# _pe_check_allowlist <objdump-output>
-# Walks each imported DLL block in the dump and, against the JSON allowlist
-# AND the optional behavioral denylist, verifies the DLL is known, every
-# named import is in its export list, and no named import is on the
-# behavioral denylist for its DLL.
-#
-# All-failures mode: this function does NOT bail on the first issue. Each
-# missing DLL, missing function, and denied function is appended to the
-# `reasons` array owned by the caller (pe_check_win98) via dynamic scoping.
-# The scalar PE_CHECK_BAD_IMPORT / PE_CHECK_BAD_FUNCTION / PE_CHECK_BAD_KIND
-# globals stay populated with the FIRST failure for back-compat with the
-# documented API — no caller currently reads them, but the contract is
-# documented at the top of this file.
-#
-# Substring-flagged DLLs (`_substring_flagged[$dll_lc]` set by the caller)
-# are treated as bundled: we don't emit a "DLL not present" reason for
-# them (the substring check already did) and we don't probe their imports.
-# Without this suppression, a single ucrt/vcruntime import would explode
-# into one "forbidden" + one "DLL not present" + one "import not available"
-# per function it brought in.
-#
-# Returns 0 on full pass, 1 if any failure was recorded.
-_pe_check_allowlist() {
-    local dump="$1"
-    local allowlist_dlls
-    if ! allowlist_dlls=$(jq -r '.dlls | keys[]' "$PE_CHECK_ALLOWLIST" 2>/dev/null); then
-        # Bad JSON — treat as "allowlist not usable" rather than failing the binary.
-        return 0
-    fi
-    # Build a bash-set of known DLL names (lower-case).
-    declare -A _known_dll=()
-    local d
-    while IFS= read -r d; do
-        _known_dll["$d"]=1
-    done <<< "$allowlist_dlls"
-
-    # Bundled-DLL set: imports from these names are passed through without
-    # any export-table check (they're shims we ship in the package).
-    declare -A _bundled_dll=()
-    local b
-    for b in ${PE_CHECK_BUNDLED_DLLS:-}; do
-        _bundled_dll["${b,,}"]=1
-    done
-
-    # Denylist availability — if the file is present and parses, we'll lazy-
-    # load the per-DLL denied set alongside the export set. Missing or broken
-    # denylist file = degraded mode (only the export-table check runs).
-    local denylist_active=0
-    if [[ -n "${PE_CHECK_DENYLIST:-}" && -f "${PE_CHECK_DENYLIST}" ]] \
-       && jq -e '.denied_exports' "$PE_CHECK_DENYLIST" >/dev/null 2>&1; then
-        denylist_active=1
-    fi
-
-    # Walk the import section once, tracking current DLL and validating each
-    # named import row against the cached export list for that DLL.
-    local current_dll="" current_dll_lc=""
-    local current_exports_loaded=0
-    local current_denied_loaded=0
-    local current_bundled=0  # also reused as "skip rows" for already-flagged DLLs
-    declare -A _exports=()  # symbol -> 1 for the current DLL (allowlist)
-    declare -A _denied=()   # symbol -> 1 for the current DLL (behavioral denylist)
-    local found_failure=0
-
-    local line
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^[[:space:]]+DLL\ Name:[[:space:]]+(.+)$ ]]; then
-            current_dll="${BASH_REMATCH[1]}"
-            current_dll="${current_dll%$'\r'}"
-            current_dll_lc="${current_dll,,}"
-            current_exports_loaded=0
-            current_denied_loaded=0
-            current_bundled=0
-            _exports=()
-            _denied=()
-
-            # Bundled DLLs (shims we ship) bypass system-allowlist and
-            # function checks entirely.
-            if [[ -n "${_bundled_dll[$current_dll_lc]:-}" ]]; then
-                current_bundled=1
-                continue
+            if jq -r '
+                .dlls // {} | to_entries[] |
+                (("dll!" + .key), (.key as $d | .value[] | "sym!" + $d + "!" + .))
+            ' "$PE_CHECK_ALLOWLIST" >"$_tmpdir/allow" 2>/dev/null; then
+                _allow_active=1
             fi
-            # Already flagged by the caller's DLL-substring check (ucrt /
-            # vcruntime / api-ms-win-*). Don't add a duplicate "DLL not
-            # present" reason and don't probe its imports.
-            if [[ -n "${_substring_flagged[$current_dll_lc]:-}" ]]; then
-                current_bundled=1
-                continue
-            fi
-            if [[ -z "${_known_dll[$current_dll_lc]:-}" ]]; then
-                : "${PE_CHECK_BAD_IMPORT:=$current_dll}"
-                : "${PE_CHECK_BAD_KIND:=missing}"
-                reasons+=("DLL not present on Win98: $current_dll")
-                found_failure=1
-                # Skip this DLL's import rows — every function it exports is
-                # by definition not in our allowlist (we don't have an
-                # export table for an unknown DLL), so probing them would
-                # generate N redundant "import not available" lines.
-                current_bundled=1
-                continue
-            fi
-            continue
-        fi
-
-        # Skip import rows for a bundled / already-flagged DLL.
-        if [[ "$current_bundled" -eq 1 ]]; then
-            continue
-        fi
-
-        # Named-import row. binutils' objdump emits this in two different
-        # layouts depending on version (see AGENTS.md §5.9):
-        #
-        #   3-col (older, e.g. Ubuntu 22.04 / binutils 2.38, our toolchain-
-        #          builder container):
-        #     "vma:  Hint/Ord  Member-Name  Bound-To"
-        #     "\t446ba\t 1257  _stati64"
-        #
-        #   4-col (newer, e.g. mingw-w64 binutils on the host):
-        #     "vma:  Ordinal  Hint  Member-Name  Bound-To"
-        #     "\t446ba  <none>  04e9  _stati64"
-        #
-        # Bound-To is empty on every row in both layouts (we don't pre-bind).
-        # We try the 4-col layout first because it's strictly more specific:
-        # the 3-col regex would silently mis-match a 4-col row (capturing the
-        # Hint column instead of the symbol). Either of the two regexes
-        # matching is fine — we extract the symbol from whichever fires.
-        # This auto-detect lets us survive an Ubuntu base-image bump without
-        # silently flipping the per-function check into a no-op.
-        local sym=""
-        if [[ "$line" =~ ^[[:space:]]+[0-9a-fA-F]+[[:space:]]+(\<none\>|[0-9]+)[[:space:]]+[0-9a-fA-F]+[[:space:]]+([A-Za-z_][A-Za-z0-9_@?$]*) ]]; then
-            sym="${BASH_REMATCH[2]}"
-        elif [[ "$line" =~ ^[[:space:]]+[0-9a-fA-F]+[[:space:]]+(\<none\>|[0-9]+)[[:space:]]+([A-Za-z_][A-Za-z0-9_@?$]*) ]]; then
-            sym="${BASH_REMATCH[2]}"
-        fi
-        if [[ -n "$sym" ]]; then
-            if [[ -z "$current_dll" ]]; then
-                continue
-            fi
-            if [[ "$current_exports_loaded" -eq 0 ]]; then
-                # Lazy-load the export set for this DLL on first import row.
-                while IFS= read -r e; do
-                    _exports["$e"]=1
-                done < <(jq -r --arg d "$current_dll_lc" '.dlls[$d][]' "$PE_CHECK_ALLOWLIST")
-                current_exports_loaded=1
-            fi
-            if [[ -z "${_exports[$sym]:-}" ]]; then
-                : "${PE_CHECK_BAD_IMPORT:=$current_dll}"
-                : "${PE_CHECK_BAD_FUNCTION:=$current_dll:$sym}"
-                : "${PE_CHECK_BAD_KIND:=missing}"
-                reasons+=("import not available on Win98: $current_dll:$sym")
-                found_failure=1
-                continue
-            fi
-            # Symbol is in the export table. Now check the behavioral denylist.
-            # An entry there means "exported by Win98 SE but always fails at
-            # runtime (stub)" — reject those even though they bind cleanly.
-            if [[ "$denylist_active" -eq 1 ]]; then
-                if [[ "$current_denied_loaded" -eq 0 ]]; then
-                    # Lazy-load the denied set for this DLL on first import row.
-                    # `.denied_exports[$d] // []` returns an empty array when
-                    # the DLL has no denylist entries (common case), which the
-                    # `[]` projection then yields zero rows for — no-op load.
-                    while IFS= read -r e; do
-                        [[ -n "$e" ]] && _denied["$e"]=1
-                    done < <(jq -r --arg d "$current_dll_lc" '.denied_exports[$d] // [] | .[]' "$PE_CHECK_DENYLIST")
-                    current_denied_loaded=1
-                fi
-                if [[ -n "${_denied[$sym]:-}" ]]; then
-                    : "${PE_CHECK_BAD_IMPORT:=$current_dll}"
-                    : "${PE_CHECK_BAD_FUNCTION:=$current_dll:$sym}"
-                    : "${PE_CHECK_BAD_KIND:=denied}"
-                    reasons+=("Win98 stub-only (binds but non-functional): $current_dll:$sym")
-                    found_failure=1
+            if [ -n "${PE_CHECK_DENYLIST:-}" ] && [ -f "$PE_CHECK_DENYLIST" ]; then
+                if jq -r '
+                    .denied_exports // {} | to_entries[] |
+                    (.key as $d | .value[] | "deny!" + $d + "!" + .)
+                ' "$PE_CHECK_DENYLIST" >"$_tmpdir/deny" 2>/dev/null; then
+                    _deny_active=1
                 fi
             fi
         fi
-    done <<< "$dump"
+    fi
 
-    return $found_failure
+    # Run the single-pass awk. Outputs lines prefixed with a tag the shell
+    # parses below. Tags:
+    #   BAD_IMPORT:<dll>           — first failing DLL (back-compat scalar)
+    #   BAD_FUNCTION:<dll>:<sym>   — first failing function (back-compat scalar)
+    #   BAD_KIND:missing|denied    — kind of the first failure
+    #   OS_MAJOR:<n>, OS_MINOR:<n>, SUBSYS_MAJOR:<n>, SUBSYS_MINOR:<n>
+    #   REASON:<text>              — one line per finding (joined with "; ")
+    #   RESULT:pass|fail           — single trailing verdict
+    awk \
+        -v ALLOW_FILE="$_tmpdir/allow" \
+        -v DENY_FILE="$_tmpdir/deny" \
+        -v ALLOW_ACTIVE="$_allow_active" \
+        -v DENY_ACTIVE="$_deny_active" \
+        -v BUNDLED_DLLS="${PE_CHECK_BUNDLED_DLLS:-}" \
+    '
+    BEGIN {
+        # Forbidden-substring patterns (lower-case; mirrors PE_FORBIDDEN_IMPORT_PATTERNS).
+        n_forbidden = 3
+        forbidden[1] = "api-ms-win-"
+        forbidden[2] = "ucrtbase.dll"
+        forbidden[3] = "vcruntime"
+
+        # Load flattened allowlist into known_dll[] and export_set["<dll_lc>!<sym>"].
+        if (ALLOW_ACTIVE == "1") {
+            while ((getline line < ALLOW_FILE) > 0) {
+                n = split(line, p, "!")
+                if (n == 2 && p[1] == "dll") {
+                    known_dll[tolower(p[2])] = 1
+                } else if (n == 3 && p[1] == "sym") {
+                    export_set[tolower(p[2]) "!" p[3]] = 1
+                }
+            }
+            close(ALLOW_FILE)
+        }
+
+        # Load flattened denylist into denied_set["<dll_lc>!<sym>"].
+        if (DENY_ACTIVE == "1") {
+            while ((getline line < DENY_FILE) > 0) {
+                n = split(line, p, "!")
+                if (n == 3 && p[1] == "deny") {
+                    denied_set[tolower(p[2]) "!" p[3]] = 1
+                }
+            }
+            close(DENY_FILE)
+        }
+
+        # Bundled DLLs (space-separated, case-insensitive).
+        n_bundled = split(BUNDLED_DLLS, b_arr, " ")
+        for (i = 1; i <= n_bundled; i++) {
+            if (b_arr[i] != "") bundled[tolower(b_arr[i])] = 1
+        }
+
+        current_dll = ""
+        current_dll_lc = ""
+        skip_rows = 0
+        fail = 0
+    }
+
+    # DLL Name header: "\tDLL Name: KERNEL32.dll"
+    /DLL Name:/ {
+        current_dll = $3
+        sub(/\r$/, "", current_dll)
+        current_dll_lc = tolower(current_dll)
+        skip_rows = 0
+
+        # 1. Forbidden substring check (ucrt, vcruntime, api-ms-win-*).
+        for (i = 1; i <= n_forbidden; i++) {
+            if (index(current_dll_lc, forbidden[i]) > 0) {
+                if (BAD_IMPORT == "") {
+                    BAD_IMPORT = current_dll
+                    print "BAD_IMPORT:" current_dll
+                }
+                print "REASON:forbidden import: " current_dll
+                substring_flagged[current_dll_lc] = 1
+                skip_rows = 1
+                fail = 1
+                break
+            }
+        }
+        if (skip_rows) next
+
+        # 2. Bundled DLL — pass through entirely (shim shipped alongside).
+        if (current_dll_lc in bundled) {
+            skip_rows = 1
+            next
+        }
+
+        # 3. Allowlist check (only when active).
+        if (ALLOW_ACTIVE == "1") {
+            if (!(current_dll_lc in known_dll)) {
+                if (BAD_IMPORT == "") {
+                    BAD_IMPORT = current_dll
+                    print "BAD_IMPORT:" current_dll
+                }
+                if (BAD_KIND == "") {
+                    BAD_KIND = "missing"
+                    print "BAD_KIND:missing"
+                }
+                print "REASON:DLL not present on Win98: " current_dll
+                skip_rows = 1
+                fail = 1
+                next
+            }
+        }
+        next
+    }
+
+    # Named-import row. Both objdump layouts (3-col and 4-col, see AGENTS.md
+    # §5.9) have the symbol as the last whitespace-separated field. We anchor
+    # on "leading whitespace + hex" to skip the "vma:" column-header row and
+    # section dividers.
+    /^[ \t]+[0-9a-fA-F]+[ \t]/ {
+        if (skip_rows) next
+        if (current_dll == "") next
+        # Per-function check only when allowlist is active.
+        if (ALLOW_ACTIVE != "1") next
+
+        sym = $NF
+        # Filter rows where $NF is not a valid symbol — e.g. ordinal-only
+        # imports that have no Member-Name column.
+        if (sym !~ /^[A-Za-z_]/) next
+
+        key = current_dll_lc "!" sym
+
+        if (!(key in export_set)) {
+            if (BAD_IMPORT == "") {
+                BAD_IMPORT = current_dll
+                print "BAD_IMPORT:" current_dll
+            }
+            if (BAD_FUNCTION == "") {
+                BAD_FUNCTION = current_dll ":" sym
+                print "BAD_FUNCTION:" current_dll ":" sym
+            }
+            if (BAD_KIND == "") {
+                BAD_KIND = "missing"
+                print "BAD_KIND:missing"
+            }
+            print "REASON:import not available on Win98: " current_dll ":" sym
+            fail = 1
+            next
+        }
+
+        # Symbol is in the allowlist — now check the behavioral denylist.
+        if (DENY_ACTIVE == "1" && (key in denied_set)) {
+            if (BAD_IMPORT == "") {
+                BAD_IMPORT = current_dll
+                print "BAD_IMPORT:" current_dll
+            }
+            if (BAD_FUNCTION == "") {
+                BAD_FUNCTION = current_dll ":" sym
+                print "BAD_FUNCTION:" current_dll ":" sym
+            }
+            if (BAD_KIND == "") {
+                BAD_KIND = "denied"
+                print "BAD_KIND:denied"
+            }
+            print "REASON:Win98 stub-only (binds but non-functional): " current_dll ":" sym
+            fail = 1
+        }
+    }
+
+    # OS / Subsystem version fields appear exactly once each in objdump -p.
+    # Captures stay informational; the integer threshold check is here too.
+    /MajorOSystemVersion/ {
+        os_major = $2
+        print "OS_MAJOR:" os_major
+        if (os_major + 0 > 4) {
+            print "REASON:MajorOSVersion=" os_major " (must be <= 4 for Win98)"
+            fail = 1
+        }
+    }
+    /MinorOSystemVersion/    { print "OS_MINOR:" $2 }
+    /MajorSubsystemVersion/ {
+        subsys_major = $2
+        print "SUBSYS_MAJOR:" subsys_major
+        if (subsys_major + 0 > 4) {
+            print "REASON:MajorSubsystemVersion=" subsys_major " (must be <= 4 for Win98)"
+            fail = 1
+        }
+    }
+    /MinorSubsystemVersion/  { print "SUBSYS_MINOR:" $2 }
+
+    END {
+        if (fail) print "RESULT:fail"; else print "RESULT:pass"
+    }
+    ' "$_tmpdir/dump" >"$_tmpdir/awk-out" 2>/dev/null
+
+    # Parse the awk output. All extraction uses prefix match + ${var#prefix}
+    # rather than IFS=: read, because BAD_FUNCTION and REASON values both
+    # contain ":" themselves (`dll:sym` and `import not available on Win98:
+    # dll:sym` respectively) and IFS=: would truncate them. REASON
+    # accumulates (joined with "; "); BAD_* scalars stay first-finding-only
+    # (the awk above enforces that on its side too — these checks are
+    # defensive).
+    _result=pass
+    while IFS= read -r _line; do
+        case "$_line" in
+            BAD_IMPORT:*)
+                [ -z "$PE_CHECK_BAD_IMPORT" ] && PE_CHECK_BAD_IMPORT=${_line#BAD_IMPORT:}
+                ;;
+            BAD_FUNCTION:*)
+                [ -z "$PE_CHECK_BAD_FUNCTION" ] && PE_CHECK_BAD_FUNCTION=${_line#BAD_FUNCTION:}
+                ;;
+            BAD_KIND:*)
+                [ -z "$PE_CHECK_BAD_KIND" ] && PE_CHECK_BAD_KIND=${_line#BAD_KIND:}
+                ;;
+            OS_MAJOR:*)     PE_CHECK_OS_MAJOR=${_line#OS_MAJOR:} ;;
+            OS_MINOR:*)     PE_CHECK_OS_MINOR=${_line#OS_MINOR:} ;;
+            SUBSYS_MAJOR:*) PE_CHECK_SUBSYS_MAJOR=${_line#SUBSYS_MAJOR:} ;;
+            SUBSYS_MINOR:*) PE_CHECK_SUBSYS_MINOR=${_line#SUBSYS_MINOR:} ;;
+            REASON:*)
+                _v=${_line#REASON:}
+                if [ -n "$PE_CHECK_FAIL_REASON" ]; then
+                    PE_CHECK_FAIL_REASON="$PE_CHECK_FAIL_REASON; $_v"
+                else
+                    PE_CHECK_FAIL_REASON=$_v
+                fi
+                ;;
+            RESULT:pass) _result=pass ;;
+            RESULT:fail) _result=fail ;;
+        esac
+    done <"$_tmpdir/awk-out"
+
+    rm -rf "$_tmpdir"
+
+    if [ "${_result:-pass}" = "fail" ]; then
+        PE_CHECK_RESULT="fail"
+        return 1
+    fi
+    PE_CHECK_RESULT="pass"
+    return 0
 }
 
-# ── Direct CLI usage ─────────────────────────────────────────────────────────
-# Only run main logic when this script is executed directly, not sourced.
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    if [[ $# -eq 0 ]]; then
-        echo "Usage: $(basename "$0") <exe> [<exe2> ...]" >&2
+# ----------------------------------------------------------------------------
+# CLI dispatch. Run only when invoked directly (not sourced).
+# Detection: bash sets BASH_SOURCE; comparison against $0 means CLI. In other
+# shells BASH_SOURCE is unset, so we match $0's basename against the script's
+# known names — works when invoked as `sh pe-win98-check.posix.sh` or via the
+# bin/ wrapper. (If neither path applies, we just don't run main — safe.)
+# ----------------------------------------------------------------------------
+_pe_check_is_cli=0
+if [ -n "${BASH_SOURCE:-}" ]; then
+    if [ "$BASH_SOURCE" = "$0" ]; then _pe_check_is_cli=1; fi
+else
+    case "${0##*/}" in
+        pe-win98-check|pe-win98-check.sh|pe-win98-check.posix.sh)
+            _pe_check_is_cli=1
+            ;;
+    esac
+fi
+
+if [ "$_pe_check_is_cli" = "1" ]; then
+    if [ $# -eq 0 ]; then
+        printf 'Usage: %s <exe> [<exe2> ...]\n' "$(basename -- "$0")" >&2
         exit 1
     fi
 
-    overall=0
-    for exe in "$@"; do
-        pe_check_win98 "$exe"
-        rc=$?
-        case "$rc" in
+    _overall=0
+    for _exe in "$@"; do
+        pe_check_win98 "$_exe"
+        _rc=$?
+        case "$_rc" in
             0)
-                ver=""
-                [[ -n "$PE_CHECK_OS_MAJOR" ]] && ver+="  OS=$PE_CHECK_OS_MAJOR.${PE_CHECK_OS_MINOR:-0}"
-                [[ -n "$PE_CHECK_SUBSYS_MAJOR" ]] && ver+="  Subsys=$PE_CHECK_SUBSYS_MAJOR.${PE_CHECK_SUBSYS_MINOR:-0}"
-                echo "[PASS] $exe$ver"
+                _ver=""
+                [ -n "$PE_CHECK_OS_MAJOR" ] && _ver="$_ver  OS=$PE_CHECK_OS_MAJOR.${PE_CHECK_OS_MINOR:-0}"
+                [ -n "$PE_CHECK_SUBSYS_MAJOR" ] && _ver="$_ver  Subsys=$PE_CHECK_SUBSYS_MAJOR.${PE_CHECK_SUBSYS_MINOR:-0}"
+                printf '[PASS] %s%s\n' "$_exe" "$_ver"
                 ;;
             1)
-                echo "[FAIL] $exe — $PE_CHECK_FAIL_REASON"
-                overall=1
+                printf '[FAIL] %s — %s\n' "$_exe" "$PE_CHECK_FAIL_REASON"
+                _overall=1
                 ;;
             2)
-                echo "[SKIP] $exe (not a PE or objdump failed)"
+                printf '[SKIP] %s (not a PE or objdump failed)\n' "$_exe"
                 ;;
         esac
     done
-    exit "$overall"
+    exit "$_overall"
 fi

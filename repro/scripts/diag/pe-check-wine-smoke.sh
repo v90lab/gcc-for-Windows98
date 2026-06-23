@@ -37,8 +37,9 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck disable=SC1091
 source "$PROJECT_DIR/scripts/lib/common.sh"
 
-# Script under test — the POSIX rewrite (NOT the bash original).
-POSIX_CHECKER="$PROJECT_DIR/scripts/verifiers/pe-win98-check.posix.sh"
+# Script under test — the POSIX-sh pe-check that ships to all three install
+# locations (build-time sourced, cross tarball, extras toolset).
+POSIX_CHECKER="$PROJECT_DIR/scripts/verifiers/pe-win98-check.sh"
 
 # Tools we exercise the rewrite with: busybox-w32 sh as the shell, and
 # native-toolset objdump.exe + extras-toolset jq.exe as the binaries the

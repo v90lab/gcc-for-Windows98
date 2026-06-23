@@ -324,7 +324,85 @@ Mirror the test cases in
 This step gates the cutover. If it fails, we know what broke before
 swapping the production caller.
 
-### Phase 5 — Cutover
+### Phase 5 — Cutover ✅ DONE (2026-06-22)
+
+**Sequence as executed:**
+
+1. **Resolver hardening** — added a third probe to
+   `_pe_check_resolve_data` in the staging script: try
+   `$self_dir/../share/win98-verify/$basename` after the repo- and flat-layout
+   probes. Covers the cross-tarball `bin/pe-win98-check` wrapper symlink
+   case (busybox has no `readlink`; we needed an explicit relative probe
+   instead of symlink walking).
+2. **Cutover** — `cp .posix.sh .sh && rm .posix.sh`. Single content swap
+   inside the same file path, so git history of `pe-win98-check.sh` shows
+   a clean "bash → POSIX" content change, and `.posix.sh` shows as
+   deleted.
+3. **Back-compat aliases** — added two-line wrappers
+   `_pe_check_default_allowlist`/`_pe_check_default_denylist` that delegate
+   to `_pe_check_resolve_data`. Lets the existing `install-pe-checker.sh`
+   verification hook keep working unmodified.
+4. **Install verifier hardened** — updated
+   [`install-pe-checker.sh`](../../scripts/install-pe-checker.sh) to
+   compare resolved paths via `realpath` instead of literal string
+   equality. The resolver doesn't follow symlinks (no `readlink` in
+   busybox), so via the bin/ wrapper it returns `bin/../share/foo.json`
+   — same file as `share/foo.json` but a different string. Comparing
+   via canonical path tests file identity, which is what the verifier
+   actually wants.
+5. **Extras install step** —
+   [`install-pe-checker-extras.sh`](../../scripts/install-pe-checker-extras.sh)
+   added. Targets `out/extras-toolset/share/win98-verify/`. Same source
+   files as the cross install (single source of truth in
+   `scripts/verifiers/` + `data/`). No bin/ wrapper — Win98 command.com
+   lacks the `%~dp0` cmd.exe extension, so a relocatable .bat wrapper
+   isn't trivial; punted to a follow-up (a small bb-shim-style EXE wrapper
+   is the clean option). Bare invocation works today:
+   `sh share\win98-verify\pe-win98-check.sh foo.exe`.
+6. **Pipeline wiring** — [`run-toolchain-build.sh`](../../scripts/run-toolchain-build.sh)
+   gained a `PE_CHECK_SOURCE` shared-input list and:
+   - Added the new step to `EXTRAS_STEPS` between
+     `install-win98-helpers-extras` and `strip-extras-toolset`.
+   - Declared `PE_CHECK_SOURCE` as an input on `install-pe-checker`,
+     `install-pe-checker-extras`, and **both** package + manifest steps on
+     **both** the cross and extras sides. This is the WIN98_COMPAT_AR
+     chaining pattern from AGENTS.md §3.4 — a pe-check source edit must
+     re-fire all the way through package, otherwise the change ships in
+     `out/<toolset>/share/win98-verify/` but the zip/tarball stays stale.
+7. **AGENTS.md** — §3.3 extras phase ordering updated to reflect the
+   new step, with a one-paragraph note pointing at this plan.
+
+**Verification on the rebuilt artifacts:**
+
+| Test                                              | Result |
+| ------------------------------------------------- | ------ |
+| `install-pe-checker` re-run (cross side)          | OK     |
+| `install-pe-checker-extras` re-run                | OK     |
+| Cross bin/ symlink: PASS path (gcc.exe)           | rc=0   |
+| Cross bin/ symlink: FAIL path (gdb.exe, bcrypt)   | rc=1   |
+| Extras share/-installed: PASS path (gcc.exe)      | rc=0   |
+| Extras share/-installed: FAIL path (gdb.exe)      | rc=1   |
+| wine+busybox-ash → extras share/ (gcc.exe PASS)   | rc=0   |
+| wine+busybox-ash → extras share/ (gdb.exe bundled)| rc=0   |
+| `pe-check-wine-smoke.sh` (9 assertions)           | 9/9    |
+
+The 16 in-tree sourced callers were not touched. Function contract
+(`pe_check_win98`, `PE_CHECK_*` globals) preserved; the per-binary
+output is identical to the pre-cutover state as proven by Phase 3's
+653/653 sweep.
+
+**Known follow-ups (not blocking):**
+
+- bin/ wrapper for Win98 — pick between a small bb-shim-style EXE
+  (relocatable, ~30 lines of C) or a hand-curated `setenv.bat` alias.
+  Bare-sh invocation works today; this is UX polish.
+- Real-hardware validation (Phase 6) — log the extras-side invocation
+  in [`WIN98-MANUAL-CHECKS.md`](../../../WIN98-MANUAL-CHECKS.md).
+- The comparison harness (Phase 3 deliverable) was removed during
+  cutover — its purpose was the bash-vs-POSIX gate, which is now
+  closed. Git history preserves it.
+
+#### Original Phase 5 plan (for reference)
 
 Sequence:
 

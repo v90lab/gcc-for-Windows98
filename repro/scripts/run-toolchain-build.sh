@@ -126,6 +126,12 @@ check_containers() {
 # binaries still imported msvcrt:_fstat64 from msvcrt's import lib). See
 # §3.4 in AGENTS.md.
 WIN98_COMPAT_AR="out/toolchain/i686-w64-mingw32/lib/libwin98compat.a"
+# pe-win98-check source + data: a change here must re-fire install-pe-checker
+# (both cross + extras) plus the package and manifest steps that bundle the
+# installed copies. Mirrors the WIN98_COMPAT_AR chaining pattern in AGENTS.md
+# §3.4 — declare the source as an input on every step that consumes the
+# installed copy downstream, so a script edit can't silently skip past package.
+PE_CHECK_SOURCE="scripts/verifiers/pe-win98-check.sh:data/win98se-api-allowlist.json:data/win98-behavioral-denylist.json"
 
 declare -a CROSS_STEPS=(
   "fetch-sources|fetch-sources.sh|Fetch source trees|builder"
@@ -141,9 +147,9 @@ declare -a CROSS_STEPS=(
   "build-gcc|build-cross-gcc.sh|Build GCC final|builder"
   "verify-cross-compiler-features|verify-cross-compiler-features.sh|Verify cross compiler features|builder"
   "build-win98-compat|build-win98-compat.sh|Build Win98 API compat shim (libwin98compat.a)|builder|win98-compat/src/win98_compat.c:win98-compat/include/win98_compat.h"
-  "install-pe-checker|install-pe-checker.sh|Bundle pe-win98-check.sh + data into cross toolchain|builder|scripts/verifiers/pe-win98-check.sh:data/win98se-api-allowlist.json:data/win98-behavioral-denylist.json"
-  "package|package-cross-toolset.sh|Package cross toolchain|builder|${WIN98_COMPAT_AR}"
-  "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder|${WIN98_COMPAT_AR}"
+  "install-pe-checker|install-pe-checker.sh|Bundle pe-win98-check.sh + data into cross toolchain|builder|${PE_CHECK_SOURCE}"
+  "package|package-cross-toolset.sh|Package cross toolchain|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}"
+  "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}"
 )
 
 declare -a NATIVE_STEPS=(
@@ -179,10 +185,11 @@ declare -a EXTRAS_STEPS=(
   "build-sockdiag|build-sockdiag.sh|Build sockdiag.exe Win9x Winsock diagnostic|builder|diag/sockdiag.c"
   "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder|${WIN98_COMPAT_AR}"
   "install-win98-helpers-extras|install-win98-helpers-extras.sh|Install setenv.bat + check-versions.bat into extras toolset|builder|scripts/win98/setenv.bat:scripts/win98/check-versions.bat"
+  "install-pe-checker-extras|install-pe-checker-extras.sh|Bundle pe-win98-check.sh + data into extras toolset|builder|${PE_CHECK_SOURCE}"
   "strip-extras-toolset|strip-extras-toolset.sh|Strip debug info from extras toolset binaries|builder|${WIN98_COMPAT_AR}"
   "write-extras-build-info|write-extras-build-info.sh|Write BUILD.TXT into extras toolset root|builder|${WIN98_COMPAT_AR}"
-  "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder|${WIN98_COMPAT_AR}"
-  "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder|${WIN98_COMPAT_AR}"
+  "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}"
+  "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}"
 )
 
 # --- Resume Logic -----------------------------------------------------------

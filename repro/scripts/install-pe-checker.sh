@@ -72,20 +72,27 @@ RESOLVED_DENY=$(
         _pe_check_default_denylist
     ' _ "$INSTALL_DIR/pe-win98-check.sh"
 )
-if [[ "$RESOLVED_ALLOW" != "$INSTALL_DIR/win98se-api-allowlist.json" ]]; then
-    die "bundled checker resolved allowlist to $RESOLVED_ALLOW (expected $INSTALL_DIR/win98se-api-allowlist.json)"
+# Compare via realpath: the POSIX resolver returns paths that may include
+# `bin/..` segments when invoked through the bin/ wrapper symlink (it deliberately
+# doesn't follow symlinks — busybox has no readlink). Both `bin/../share/foo`
+# and `share/foo` point at the same file; realpath canonicalizes both sides
+# so we test file identity, not string equality.
+EXPECTED_ALLOW="$(realpath "$INSTALL_DIR/win98se-api-allowlist.json")"
+EXPECTED_DENY="$(realpath "$INSTALL_DIR/win98-behavioral-denylist.json")"
+
+if [[ "$(realpath "$RESOLVED_ALLOW" 2>/dev/null)" != "$EXPECTED_ALLOW" ]]; then
+    die "bundled checker resolved allowlist to $RESOLVED_ALLOW (expected to canonicalize to $EXPECTED_ALLOW)"
 fi
-if [[ "$RESOLVED_DENY" != "$INSTALL_DIR/win98-behavioral-denylist.json" ]]; then
-    die "bundled checker resolved denylist to $RESOLVED_DENY (expected $INSTALL_DIR/win98-behavioral-denylist.json)"
+if [[ "$(realpath "$RESOLVED_DENY" 2>/dev/null)" != "$EXPECTED_DENY" ]]; then
+    die "bundled checker resolved denylist to $RESOLVED_DENY (expected to canonicalize to $EXPECTED_DENY)"
 fi
 
 # Same resolution check but via the bin/ wrapper symlink. The two prior checks
-# source the script through its real path; this one exercises the symlink
-# traversal in _pe_check_resolve_data. Catches the regression where a naive
-# `cd $(dirname BASH_SOURCE) && pwd` leaves self_dir == bin/ and both
-# candidate data paths miss — the symptom is the per-function check silently
-# skipping in downstream use, with PASS on binaries that should FAIL (e.g.
-# anything importing bcrypt.dll).
+# source the script through its real path; this one exercises the third
+# resolver branch (probes ../share/win98-verify/ from $self_dir). Catches the
+# regression where the bin/ wrapper invocation can't find the data files —
+# symptom would be a silent skip of the per-function check, falsely passing
+# binaries that should FAIL (e.g. anything importing bcrypt.dll).
 RESOLVED_VIA_SYMLINK=$(
     env -u PE_CHECK_ALLOWLIST -u PE_CHECK_DENYLIST bash -c '
         # shellcheck disable=SC1090
@@ -93,8 +100,8 @@ RESOLVED_VIA_SYMLINK=$(
         _pe_check_default_allowlist
     ' _ "$PREFIX/bin/pe-win98-check"
 )
-if [[ "$RESOLVED_VIA_SYMLINK" != "$INSTALL_DIR/win98se-api-allowlist.json" ]]; then
-    die "bin/pe-win98-check wrapper symlink resolved allowlist to $RESOLVED_VIA_SYMLINK (expected $INSTALL_DIR/win98se-api-allowlist.json) — symlink traversal in _pe_check_resolve_data is broken"
+if [[ "$(realpath "$RESOLVED_VIA_SYMLINK" 2>/dev/null)" != "$EXPECTED_ALLOW" ]]; then
+    die "bin/pe-win98-check wrapper symlink resolved allowlist to $RESOLVED_VIA_SYMLINK (expected to canonicalize to $EXPECTED_ALLOW) — _pe_check_resolve_data ../share/win98-verify/ branch is broken"
 fi
 
 # And confirm the bin/ wrapper executes end-to-end. Feed it a non-PE file so
