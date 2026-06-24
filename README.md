@@ -4,14 +4,18 @@ A port of GCC, GDB, and Muon (meson c99 reimplementation) for Windows 98
 
 ## Tools included
 
-- gcc/g++ 11.1.0
-- gdb/gdbserver 11.0.50 (devel snapshot)
-- busybox-w32 (shell + coreutils)
-- make 4.4.1
-- universal ctags 6.2.1
+- `gcc`/`g++` 11.1.0
+- `gdb`/`gdbserver` 11.0.50 (devel snapshot)
+- busybox-w32 (`ash` shell + coreutils)
+- `make` 4.4.1
+- universal `ctags` 6.2.1
 - diffutils 3.10
-- patch 2.7.6
-- muon build system (no wrap-file support due to lack of https on win98)
+- `patch` 2.7.6
+- `jq` 1.8.2, the json-query tool
+- `muon`, a meson-like build system written in c99
+  (though no wrap-file support due to lack of https on win98)
+- `pe-win98-check`, a custom Win98 PE compatibility checker for this project
+- `pe-ldd`, an `ldd`-like tool
 
 Packages above that are missing version numbers use the main/master branch from June 2026.
 
