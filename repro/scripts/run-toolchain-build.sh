@@ -132,6 +132,11 @@ WIN98_COMPAT_AR="out/toolchain/i686-w64-mingw32/lib/libwin98compat.a"
 # §3.4 — declare the source as an input on every step that consumes the
 # installed copy downstream, so a script edit can't silently skip past package.
 PE_CHECK_SOURCE="scripts/verifiers/pe-win98-check.sh:data/win98se-api-allowlist.json:data/win98-behavioral-denylist.json"
+# pe-ldd is a sibling inspection tool that ships next to pe-win98-check.sh
+# under share/win98-verify/. Same input-tracking pattern as PE_CHECK_SOURCE:
+# declare it on its install step AND on every downstream step that bundles
+# the installed copy (package + manifest) so a script edit re-fires the tail.
+PE_LDD_SOURCE="scripts/verifiers/pe-ldd.sh"
 
 declare -a CROSS_STEPS=(
   "fetch-sources|fetch-sources.sh|Fetch source trees|builder"
@@ -148,8 +153,9 @@ declare -a CROSS_STEPS=(
   "verify-cross-compiler-features|verify-cross-compiler-features.sh|Verify cross compiler features|builder"
   "build-win98-compat|build-win98-compat.sh|Build Win98 API compat shim (libwin98compat.a)|builder|win98-compat/src/win98_compat.c:win98-compat/include/win98_compat.h"
   "install-pe-checker|install-pe-checker.sh|Bundle pe-win98-check.sh + data into cross toolchain|builder|${PE_CHECK_SOURCE}"
-  "package|package-cross-toolset.sh|Package cross toolchain|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}"
-  "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}"
+  "install-pe-ldd|install-pe-ldd.sh|Bundle pe-ldd.sh into cross toolchain|builder|${PE_LDD_SOURCE}"
+  "package|package-cross-toolset.sh|Package cross toolchain|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}:${PE_LDD_SOURCE}"
+  "write-toolchain-manifest-v2|write-toolchain-manifest.sh|Write toolchain manifest|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}:${PE_LDD_SOURCE}"
 )
 
 declare -a NATIVE_STEPS=(
@@ -186,10 +192,11 @@ declare -a EXTRAS_STEPS=(
   "verify-extras-package|verifiers/verify-extras-package.sh|Verify extras toolset Win98 capability|builder|${WIN98_COMPAT_AR}"
   "install-win98-helpers-extras|install-win98-helpers-extras.sh|Install setenv.bat + check-versions.bat into extras toolset|builder|scripts/win98/setenv.bat:scripts/win98/check-versions.bat"
   "install-pe-checker-extras|install-pe-checker-extras.sh|Bundle pe-win98-check.sh + data into extras toolset|builder|${PE_CHECK_SOURCE}"
+  "install-pe-ldd-extras|install-pe-ldd-extras.sh|Bundle pe-ldd.sh into extras toolset|builder|${PE_LDD_SOURCE}"
   "strip-extras-toolset|strip-extras-toolset.sh|Strip debug info from extras toolset binaries|builder|${WIN98_COMPAT_AR}"
   "write-extras-build-info|write-extras-build-info.sh|Write BUILD.TXT into extras toolset root|builder|${WIN98_COMPAT_AR}"
-  "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}"
-  "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}"
+  "package-extras-toolset|package-extras-toolset.sh|Package extras toolset|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}:${PE_LDD_SOURCE}"
+  "write-extras-toolchain-manifest-v2|write-toolchain-manifest.sh|Write extras toolchain manifest|builder|${WIN98_COMPAT_AR}:${PE_CHECK_SOURCE}:${PE_LDD_SOURCE}"
 )
 
 # --- Resume Logic -----------------------------------------------------------
