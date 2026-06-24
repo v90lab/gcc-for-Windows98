@@ -4,6 +4,7 @@
 *.exe
 *.so
 
-build/
-out/
+/build/
+/src/
+/out/
 
