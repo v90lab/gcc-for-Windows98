@@ -14,7 +14,10 @@ A port of GCC, GDB, and Muon (meson c99 reimplementation) for Windows 98
 - `jq` 1.8.2, the json-query tool
 - `muon`, a meson-like build system written in c99
   (though no wrap-file support due to lack of https on win98)
-- `pe-win98-check`, a custom Win98 PE compatibility checker for this project
+
+## Additional custom tools included
+
+- `pe-win98-check`, a Win98 PE compatibility checker
 - `pe-ldd`, an `ldd`-like tool
 
 Packages above that are missing version numbers use the main/master branch from June 2026.
@@ -60,7 +63,7 @@ cd repro
 
 - `repro/out/packages`
 
-  - `gcc-win98-native-toolchain.zip` -- Native Windows 98 compiler
+  - `gcc-win98-native-toolchain.zip` -- Native Windows 98 compiler (gcc/g++ only)
   - `gcc-win98-native-toolchain-extras.zip` -- Extra build tools added by this fork (see above)
   - `gcc-win98-cross-toolchain.tar.xz` -- Linux cross compiler for Windows 98
 
@@ -103,18 +106,7 @@ Early stages / in active development.
 
 The toolchain builds and installs, but expect rough edges. It has not undergone real use yet.
 
-#### Open Bugs
-
-(none currently)
-
-#### Recent Bugs Fixed
-
-- From inside `busybox sh`, non-applet binaries (`ctags`, `make`, `gdb`, `muon`, `diff`, `patch`) failed with `permission denied` when invoked by bare name; full path worked
-- `busybox sh` hung after every external command
-- Backspace key and `ls --color` both printed raw (visible) escape codes to the terminal
-- An error `sh: unable to spawn shell` was reported on the first command typed from within the `sh` shell
-
-## Additions, Changes and Fixes in [ahrbe1/gcc-for-Windows98](https://github.com/ahrbe1/gcc-for-Windows98)
+## Additions, Changes and Fixes in [ahrbe1/gcc-for-Windows98](https://github.com/ahrbe1/gcc-for-Windows98) (compared to upstream)
 
 - Fixes to allow building with docker desktop + git bash on windows (still works on linux hosts)
 - Use docker volumes instead of filesystem mounts for faster filesystem operations on windows
