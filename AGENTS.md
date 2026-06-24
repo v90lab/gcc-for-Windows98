@@ -198,7 +198,7 @@ If you find yourself wanting to add a second function to an existing shim, stop 
 
 ### 5.8 Vista+ APIs in third-party source
 
-For worked-example walk-throughs of past Win9x investigations (the round-by-round breakdown of how a symptom narrowed to a root cause), see [`repro/docs/win98-debug-history.md`](repro/docs/win98-debug-history.md). The active "what's currently shipping and being tested on real hardware" tracker is at [`WIN98-MANUAL-CHECKS.md`](WIN98-MANUAL-CHECKS.md) at the repo root.
+For worked-example walk-throughs of past Win9x investigations (the round-by-round breakdown of how a symptom narrowed to a root cause), see [`repro/docs/win98-debug-history.md`](repro/docs/win98-debug-history.md).
 
 The Win98 `_WIN32_WINNT=0x0400` setting hides any mingw-w64 declaration gated behind a higher target. Third-party projects that feature-detect at compile time (rather than via configure-time probes) hit this as `unknown type name` / `implicit declaration` errors on Vista-era APIs like `FILE_NAME_INFO`, `GetFileInformationByHandleEx`, `BCryptGenRandom`, `RtlGenRandom`.
 
@@ -338,7 +338,6 @@ The shim itself is Win98-clean (msvcrt + KERNEL32 only) and goes through `pe_che
 | [`repro/docs/win9x-shim-audit.md`](repro/docs/win9x-shim-audit.md) | Per-function audit of every API the win98-compat shim covers (plus bcrypt-shim): all call sites in shipped source trees, classified cosmetic vs load-bearing vs fixed. Maintain when adding/removing shimmed functions, and use as the worklist when a Win9x shim bug is reported |
 | [`repro/docs/win98-debug-history.md`](repro/docs/win98-debug-history.md) | Worked-example walk-throughs of past Win9x investigations (round-by-round symptom-to-root-cause narrative). Add a new section when a Win98 bug closes; lessons live in §5.8 |
 | [`repro/docs/networking-on-win98.md`](repro/docs/networking-on-win98.md) | **READ BEFORE re-enabling any networking applet in [`busybox-w32.config`](repro/configs/busybox-w32.config).** Explains why wget/whois/ftpget/ftpput/ssl_client/tls/ipcalc are disabled (Win9x `msvcrt!_open_osfhandle` rejects SOCKET handles), the latent-bug audit of currently-disabled applets that would also break (ftpd, telnet, tftp, nslookup, ...), the three fix strategies for HTTP wget, and the additional entropy-pool work needed to make HTTPS honest |
-| [`WIN98-MANUAL-CHECKS.md`](WIN98-MANUAL-CHECKS.md) | Active "open / deferred / known-broken / doneish" tracker for things shipped that need real-hardware validation. Wine doesn't catch Win9x quirks (§5.8). Where you record actual hardware test outputs; punted-with-intent items live under "Deferred" with a pointer to the dedicated doc |
 | [`.github/workflows/docker.yml`](.github/workflows/docker.yml) | CI; `BUILD_EXTRAS=1` only on tag pushes; release artifact glob is `repro/out/package/*.tar.*` |
 
 ## Useful executable paths

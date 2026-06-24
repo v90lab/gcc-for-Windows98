@@ -2,7 +2,7 @@
 
 Worked examples and root-cause writeups from past Win98-SE-specific bug investigations. Each section captures the symptom, the diagnostic approach, the root cause, the fix, and the lesson worth carrying forward. Append-only record — new investigations land at the top.
 
-For the active "what's currently being tested on real hardware" tracker, see [WIN98-MANUAL-CHECKS.md](../../WIN98-MANUAL-CHECKS.md) at the repo root. For the Win9x debugging intuition that drove most of these (kernel-API-misbehaves vs missing-DLL vs missing-function), see [AGENTS.md §5.8](../../AGENTS.md).
+For the Win9x debugging intuition that drove most of these (kernel-API-misbehaves vs missing-DLL vs missing-function), see [AGENTS.md §5.8](../../AGENTS.md).
 
 ## How investigations land here
 
@@ -56,7 +56,7 @@ That ruled out hypotheses 1, 2, 3 at once: the failure was upstream of `mingw_sp
 
 The log line `st_mode=0100770` from the full-path case became the smoking gun: `0700 | 0070` for user+group rwx, but **`0000` for "other"**. mingw_stat had stripped S_IRWXO. ash's test_exec uses `stat.st_uid == getuid()` and `stat.st_gid == getgid()` as the matching arms — and grepping mingw.c for where st_uid gets set showed the `else { buf->st_uid = buf->st_gid = 0; buf->st_mode &= ~S_IRWXO; }` failure branch in `do_lstat`. That branch only fires when `CreateFile(..., READ_CONTROL, ...)` fails — which on Win9x is always, because there are no security descriptors to read. Diagnosis → fix is round 8 above.
 
-**Saved log:** [`consdiag/run_7/BBLOG.TXT`](../../consdiag/run_7/BBLOG.TXT).
+**Saved log:** `consdiag/run_7/BBLOG.TXT`.
 
 **Lesson worth carrying:** the round-7 instrumentation didn't fire on the failing path, and that "absence of log" was the most informative single data point in the trace. When instrumenting to find a bug, instrument the code path you *think* is failing AND log enough breadcrumbs at upstream entry points to detect "we never got there." Patch 0011's `mingw_spawnvp` ENTRY log was the breadcrumb that proved ash rejected the command before any spawn was attempted.
 
@@ -121,7 +121,7 @@ REM 4. Floppy out C:\BBLOG.TXT
 
 That last point was the smoking gun. It ruled out hypotheses 1 and 2 simultaneously: the writes DO hit winansi_vfprintf (so not bypassing winansi) but they never reach ansi_emulate (so VT_OUTPUT branch isn't the issue). The control flow had to be exiting winansi_vfprintf before ansi_emulate was called — which led directly to inspecting the `goto abort` path and the vsnprintf shim above it. Diagnosis → fix is the round-6 entry above.
 
-**Saved log:** [`consdiag/run_5/BBLOG.TXT`](../../consdiag/run_5/BBLOG.TXT).
+**Saved log:** `consdiag/run_5/BBLOG.TXT`.
 
 ---
 

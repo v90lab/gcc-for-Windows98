@@ -14,7 +14,7 @@ If you're here because you tried to flip a `CONFIG_*` flag back on in [`repro/co
 
 **Why:** real Win98 SE's `msvcrt.dll!_open_osfhandle` rejects SOCKET handles entirely (`errno=22`, EINVAL). busybox-w32's whole networking model is "create a SOCKET, wrap it as a POSIX fd via `_open_osfhandle`, then use stdio (`fdopen`/`fgets`/`fprintf`) on the fd". That model can't work on Win9x without infrastructure we haven't built. Wine emulates NT and doesn't reproduce the bug — every networking applet passes the smoke tests in CI; they fail only on real hardware.
 
-**Verify:** [`repro/diag/sockdiag.c`](../diag/sockdiag.c) is the standalone diagnostic. Run `sockdiag.exe` on Win98 — see Section 4 "Socket-creation variants" in the log; every `_open_osfhandle` line says `FAILED fd=-1 errno=22 (Invalid argument)`. Reference log: [`consdiag/SOCKDIAG_2.LOG`](../../consdiag/SOCKDIAG_2.LOG) (2026-06-21 on real Win98 SE).
+**Verify:** [`repro/diag/sockdiag.c`](../diag/sockdiag.c) is the standalone diagnostic. Run `sockdiag.exe` on Win98 — see Section 4 "Socket-creation variants" in the log; every `_open_osfhandle` line says `FAILED fd=-1 errno=22 (Invalid argument)`.
 
 ## The root bug
 
@@ -38,7 +38,7 @@ Same class as [AGENTS.md §5.8](../../AGENTS.md) "Win9x is permissive in the wro
 
 ## What it would take to fix HTTP (one tier)
 
-Three sketched approaches, in increasing scope (see [`BACKLOG.md`](../../BACKLOG.md) for the full version):
+Three sketched approaches, in increasing scope:
 
 ### Strategy A — pipe-bridge in `mingw_socket` on Win9x
 `mingw_socket` creates SOCKET + anonymous pipe pair + helper thread per socket. Thread does `recv(socket) → _write(pipe_w)` and `_read(pipe_r) → send(socket)` in both directions. Returns the pipe fd (which msvcrt accepts because pipes are first-class). `fdopen` works normally because the fd really is a pipe.
@@ -66,7 +66,7 @@ Replace `fdopen(fd, "r+")` + `fgets`/`fprintf`/`fputs` with direct `mingw_send`/
 If you want `wget https://...` to work after fixing HTTP, three more things have to happen:
 
 ### 1. Same fd-wrap bug at the wget→ssl_client handoff
-[ssl_client.c:60](../src/busybox-w32/networking/ssl_client.c) does the exact same `_open_osfhandle((intptr_t)h, _O_RDWR|_O_BINARY)` on the socket HANDLE that wget passes via `-h`. **Strategy A fixes this transparently; Strategy B/C need a parallel patch.**
+`networking/ssl_client.c:60` does the exact same `_open_osfhandle((intptr_t)h, _O_RDWR|_O_BINARY)` on the socket HANDLE that wget passes via `-h`. **Strategy A fixes this transparently; Strategy B/C need a parallel patch.**
 
 ### 2. Entropy source for TLS keys
 busybox-w32's pure-C TLS implementation (`CONFIG_FEATURE_TLS_INTERNAL=y`, no schannel dep — the cryptography itself is self-contained) gets entropy from `/dev/urandom`, which is intercepted by `mingw_open` → `mingw_popen_special` → `get_random_bytes` → `RtlGenRandom` (advapi32!SystemFunction036). On Win9x:
@@ -89,7 +89,7 @@ These applets are currently `# is not set` and there's no PE-check / smoke-test 
 
 | Applet | Where the bug hides | Refer to |
 | --- | --- | --- |
-| `ftpd` | `xfdopen_for_read(ls_fd)` at [ftpd.c:746](../src/busybox-w32/networking/ftpd.c) | Strategy A or per-applet B/C |
+| `ftpd` | `xfdopen_for_read(ls_fd)` at `networking/ftpd.c:746` | Strategy A or per-applet B/C |
 | `nslookup` | uses `xfdopen_for_read` on socket fds | Same |
 | `telnet`, `telnetd` | `fdopen` on socket fd | Same |
 | `tftp`, `tftpd` | uses libbb socket helpers | Same |
@@ -98,7 +98,7 @@ These applets are currently `# is not set` and there's no PE-check / smoke-test 
 
 **General audit rule for any new networking applet**: grep for `fdopen` and `xfdopen_for_read`/`xfdopen_for_write` in the source. If those are called on a socket fd (i.e. on the return value of `xconnect_stream`, `xsocket`, or anything that goes through `mingw_socket`), it'll fail on Win98 the moment a user runs it.
 
-The libbb helper [`xfdopen_helper`](../src/busybox-w32/libbb/wfopen.c) is the shared chokepoint — anyone calling `xfdopen_for_read(sock_fd)` or `xfdopen_for_write(sock_fd)` is hitting the same `_open_osfhandle` call.
+The libbb helper `xfdopen_helper` (in `libbb/wfopen.c`) is the shared chokepoint — anyone calling `xfdopen_for_read(sock_fd)` or `xfdopen_for_write(sock_fd)` is hitting the same `_open_osfhandle` call.
 
 ## Why we punted (the actual reasoning)
 
@@ -110,23 +110,19 @@ Three things lined up to make "disable" the right call rather than "fix":
 
 3. **HTTPS is the cliff.** Even if we fixed HTTP wget cleanly, the next obvious user expectation is "and also HTTPS" — and the entropy-pool work to make that *honest* is weeks of crypto engineering with an essentially-empty user base. Shipping fake TLS would be unethical; shipping working HTTP but no HTTPS sets up an obvious "why won't `wget https://...` work" support burden. Cleaner to ship no wget at all.
 
-The decision was made 2026-06-21 after rounds of `sockdiag.exe` diagnostics on real Win98 SE. See [`WIN98-MANUAL-CHECKS.md`](../../WIN98-MANUAL-CHECKS.md) for the chronological per-round writeup.
+The decision was made 2026-06-21 after rounds of `sockdiag.exe` diagnostics on real Win98 SE.
 
 ## How to revisit
 
 If you want to take this on later:
 
 1. Run `sockdiag.exe` from the extras toolset on real Win98 to confirm the bug still reproduces (msvcrt behavior could in theory differ across Win98 vs Win98 SE vs WinMe; we've only validated against Win98 SE).
-2. Read [`BACKLOG.md`](../../BACKLOG.md) for the Strategy A/B/C trade-off framing.
-3. If only doing HTTP: pick a strategy, write a busybox-w32 patch (the patch series under [`repro/patches/busybox-w32/master/`](../patches/busybox-w32/master/) is the model — see `0006`/`0008` for the `is_win9x_proc()` helper this fix can reuse).
-4. If doing HTTPS too: the entropy work is the long pole. Read PuTTY's `winnoise.c` and old OpenSSL `rand_win.c` for prior art on Yarrow-style Win9x entropy collection.
-5. Re-enable the relevant `CONFIG_*` flags in [`busybox-w32.config`](../configs/busybox-w32.config), add the applet name back to `SHIM_APPLETS` in [`build-bb-shims.sh`](../scripts/build-bb-shims.sh), and update this doc + BACKLOG to reflect the change.
+2. If only doing HTTP: pick a strategy, write a busybox-w32 patch (the patch series under [`repro/patches/busybox-w32/master/`](../patches/busybox-w32/master/) is the model — see `0006`/`0008` for the `is_win9x_proc()` helper this fix can reuse).
+3. If doing HTTPS too: the entropy work is the long pole. Read PuTTY's `winnoise.c` and old OpenSSL `rand_win.c` for prior art on Yarrow-style Win9x entropy collection.
+4. Re-enable the relevant `CONFIG_*` flags in [`busybox-w32.config`](../configs/busybox-w32.config), add the applet name back to `SHIM_APPLETS` in [`build-bb-shims.sh`](../scripts/build-bb-shims.sh), and update this doc to reflect the change.
 
 ## References
 
 - Diagnostic source: [`repro/diag/sockdiag.c`](../diag/sockdiag.c) (Section 4 = osfhandle probe; Section 5 = raw-SOCKET I/O test)
-- Diagnostic log (round 2, conclusive): [`consdiag/SOCKDIAG_2.LOG`](../../consdiag/SOCKDIAG_2.LOG)
-- Backlog entry: [`BACKLOG.md`](../../BACKLOG.md) → "busybox-w32 wget: socket fd-wrapping fails on Win9x"
-- Manual-checks history: [`WIN98-MANUAL-CHECKS.md`](../../WIN98-MANUAL-CHECKS.md) → "busybox-w32 `socket: invalid argument`" section
 - Win9x intuition / "permissive in the wrong ways" pattern: [`AGENTS.md §5.8`](../../AGENTS.md)
 - Existing weak-RNG shims (precedent for what's NOT safe to do for TLS): [`repro/bcrypt-shim/bcrypt.c`](../bcrypt-shim/bcrypt.c), [`win98_compat.c::win98_SystemFunction036`](../win98-compat/src/win98_compat.c)

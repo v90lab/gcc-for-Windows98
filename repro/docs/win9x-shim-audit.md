@@ -347,8 +347,7 @@ literal).
 Wine emulates `getaddrinfo` against the host's resolver, so the fallback path
 runs only on real Win98 — same class as the `GetProcessId` bug per
 AGENTS.md §5.8. Wine smoke tests validate the NT-path delegation but not the
-Win9x fallback; manual hardware validation tracked in
-[`WIN98-MANUAL-CHECKS.md`](../../WIN98-MANUAL-CHECKS.md).
+Win9x fallback; needs manual hardware validation.
 
 ### Implementation (landed in shim)
 

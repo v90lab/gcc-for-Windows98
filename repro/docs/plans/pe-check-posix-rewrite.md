@@ -53,8 +53,7 @@ The rewrite is mergeable when:
 3. The script runs end-to-end under busybox-w32 ash via Wine against at
    least one PASS binary and one FAIL binary (gdb.exe without
    `PE_CHECK_BUNDLED_DLLS`), with the expected rc.
-4. The script runs end-to-end on real Win98 hardware — logged in
-   [`WIN98-MANUAL-CHECKS.md`](../../../WIN98-MANUAL-CHECKS.md).
+4. The script runs end-to-end on real Win98 hardware.
 5. The extras package ships its own copy under `share/win98-verify/` +
    `bin/pe-win98-check` (`.bat` wrapper, since FAT32 has no symlinks).
 
@@ -212,8 +211,7 @@ Tiny phase. Settle the awk-driven architecture sketched in
 
 ### Phase 3 — Comparison harness ✅ DONE (2026-06-22)
 
-**Deliverable:**
-[`pe-check-compare.sh`](../../scripts/diag/pe-check-compare.sh) — landed.
+**Deliverable:** `pe-check-compare.sh` — landed (later removed during Phase 5 cutover; see §5 note).
 
 **Result matrix:**
 
@@ -396,8 +394,8 @@ output is identical to the pre-cutover state as proven by Phase 3's
 - bin/ wrapper for Win98 — pick between a small bb-shim-style EXE
   (relocatable, ~30 lines of C) or a hand-curated `setenv.bat` alias.
   Bare-sh invocation works today; this is UX polish.
-- Real-hardware validation (Phase 6) — log the extras-side invocation
-  in [`WIN98-MANUAL-CHECKS.md`](../../../WIN98-MANUAL-CHECKS.md).
+- Real-hardware validation (Phase 6) — exercise the extras-side
+  invocation on a real Win98 box.
 - The comparison harness (Phase 3 deliverable) was removed during
   cutover — its purpose was the bash-vs-POSIX gate, which is now
   closed. Git history preserves it.
@@ -421,8 +419,7 @@ Sequence:
 
 ### Phase 6 — Real-hardware validation
 
-Log the "ran on real Win98" exercise in
-[`WIN98-MANUAL-CHECKS.md`](../../../WIN98-MANUAL-CHECKS.md). Test cases:
+Run the "ran on real Win98" exercise. Test cases:
 
 1. PASS on a known-good extras binary (`make.exe` or similar)
 2. FAIL on a deliberately-broken binary, or use `gdb.exe` without
