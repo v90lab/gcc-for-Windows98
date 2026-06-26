@@ -182,6 +182,7 @@ declare -a EXTRAS_STEPS=(
   "build-native-make|build-native-make.sh|Build GNU make|builder|${WIN98_COMPAT_AR}"
   "build-native-diffutils|build-native-diffutils.sh|Build GNU diffutils|builder|${WIN98_COMPAT_AR}"
   "build-native-patch|build-native-patch.sh|Build GNU patch|builder|${WIN98_COMPAT_AR}"
+  "build-native-tcc|build-native-tcc.sh|Build tinycc (tcc)|builder|${WIN98_COMPAT_AR}"
   "build-native-gdb|build-native-gdb.sh|Build gdb|builder|${WIN98_COMPAT_AR}"
   "build-native-muon|build-native-muon.sh|Build muon|builder|${WIN98_COMPAT_AR}"
   "build-native-jq|build-native-jq.sh|Build jq|builder|${WIN98_COMPAT_AR}"

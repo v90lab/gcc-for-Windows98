@@ -115,6 +115,13 @@
                             "sha256": "71b8d6e8f5fe81f6c6d0d110e3892251f6ce76ed095abd315e26e6e1193af3af"
                         }
                     }
+                },
+                {
+                    "tinycc": {
+                        "source": "https://github.com/TinyCC/tinycc.git",
+                        "commit": "a338258d309c888bde96b2d1f206299231a54ddf",
+                        "version": "mob"
+                    }
                 }
             ]
         }

@@ -78,6 +78,10 @@ fetch_component "jq" \
   "$JQ_FETCH_SOURCE" "$JQ_FETCH_REF" \
   "$JQ_TARBALL_URL" "$JQ_TARBALL_SHA512" "$JQ_TARBALL_SHA256" "${JQ_TARBALL_STRIP:-1}"
 
+fetch_component "tinycc" \
+  "$TINYCC_FETCH_SOURCE" "$TINYCC_FETCH_REF" \
+  "$TINYCC_TARBALL_URL" "$TINYCC_TARBALL_SHA512" "$TINYCC_TARBALL_SHA256" "${TINYCC_TARBALL_STRIP:-1}"
+
 log "using container-provided dev packages for gmp/mpfr/mpc in the first reproduction pass"
 mark_done fetch-sources
 log "fetch complete"

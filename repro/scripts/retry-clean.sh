@@ -29,7 +29,7 @@ ensure_builder_running
 
 # git reset every source clone that still has a .git/. Tarball-extracted
 # sources (no .git/) are immutable extractions — leave them alone.
-for repo in gcc binutils-gdb mingw-w64 pthread9x busybox-w32 make ctags diffutils patch muon jq; do
+for repo in gcc binutils-gdb mingw-w64 pthread9x busybox-w32 make ctags diffutils patch muon jq tinycc; do
   if docker compose -f "$COMPOSE_FILE" exec -T toolchain-builder \
         test -d "/work/src/$repo/.git" 2>/dev/null; then
     echo "  git reset $repo..."

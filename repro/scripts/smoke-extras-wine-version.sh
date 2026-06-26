@@ -29,6 +29,7 @@ declare -A TOOLS=(
     [gdb.exe]="--version"
     [muon.exe]="version"
     [jq.exe]="--version"
+    [tcc.exe]="-v"
 )
 
 PASS=0

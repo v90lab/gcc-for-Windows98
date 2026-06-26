@@ -24,6 +24,7 @@ MAPPING = {
     "patch": "PATCH",
     "muon": "MUON",
     "jq": "JQ",
+    "tinycc": "TINYCC",
 }
 
 VERSION_ONLY_MAPPING = {

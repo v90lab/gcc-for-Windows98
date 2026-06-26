@@ -73,6 +73,8 @@ declare -a SMOKE_STEPS=(
   "smoke-cmake-cross|smoke-cmake-build.sh cross ${JOBS}|Phase 3a: cross toolchain CMake build + Win98 check + wine run|${CROSS_MANIFEST}:tests/CMakeLists.txt:docker/cmake/cross-toolchain.cmake"
   "smoke-cmake-native|smoke-cmake-build.sh native ${JOBS}|Phase 3b: native toolchain CMake build + Win98 check + wine run|${NATIVE_MANIFEST}:tests/CMakeLists.txt:docker/cmake/native-toolchain.cmake"
   "smoke-extras-wine|smoke-extras-wine-version.sh|Phase 3c: extras toolset wine --version smoke|${EXTRAS_MANIFEST}"
+  "smoke-tcc-build|smoke-tcc-build.sh|Phase 3d: tcc-built hello world Win98 check + wine run|${EXTRAS_MANIFEST}"
+  "smoke-tcc-build-c|smoke-tcc-build-c.sh|Phase 3e: tcc-built smoke-c subset Win98 check + wine run|${EXTRAS_MANIFEST}:tests/smoke-c/hello_world.c:tests/smoke-c/file_io_test.c:tests/smoke-c/time_test.c:tests/smoke-c/floating_point_test.c:tests/smoke-c/math_test.c:tests/smoke-c/ucrt_leak_test.c:tests/smoke-c/well_known_global_symbols.c"
 )
 
 # --- Logging Setup -----------------------------------------------------------

@@ -10,7 +10,7 @@ set -euo pipefail
 #
 # Checks:
 #   1. Required tools are present (busybox.exe, sh.exe, make.exe,
-#      ctags.exe, diff.exe, patch.exe, gdb.exe, muon.exe).
+#      ctags.exe, diff.exe, patch.exe, gdb.exe, muon.exe, jq.exe, tcc.exe).
 #   2. Every .exe / .dll passes the Win98 PE compatibility check via
 #      pe_check_win98 (no UCRT/api-ms-win/vcruntime imports, MajorOSVersion ≤ 4).
 # ============================================================================
@@ -52,6 +52,7 @@ REQUIRED_PATHS=(
     "bin/gdb.exe"
     "bin/muon.exe"
     "bin/jq.exe"
+    "bin/tcc.exe"
 )
 
 if [[ "$VERIFY_MODE" == "directory" ]]; then
