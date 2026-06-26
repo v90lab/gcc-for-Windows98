@@ -21,15 +21,17 @@ set -euo pipefail
 # lib/Makefile uses tcc-as-archiver too (`$(XTCC) -ar`), so the single XTCC
 # override covers compile + archive steps.
 #
-# In-package layout (under $INSTALL_DIR/bin/):
-#   tcc.exe              <- the compiler
-#   include/             <- tcc-target headers (its bundled minimal mingw set)
-#   lib/                 <- libtcc1.a + win32/lib/*.def import descriptors
-#   libtcc/libtcc.{a,h}  <- libtcc embedding API for JIT users
-# tcc resolves its tccdir at runtime as dirname(tcc.exe) on Win32, so all
-# resources sit next to the executable rather than under a separate prefix.
-# include/ and lib/ as siblings of tcc.exe inside bin/ is unconventional but
-# self-contained: nothing else in the extras package writes there.
+# In-package layout:
+#   $INSTALL_DIR/bin/tcc.exe       <- the compiler (in the shared bin/)
+#   $INSTALL_DIR/tcc/include/      <- tcc-target headers (bundled minimal mingw set)
+#   $INSTALL_DIR/tcc/lib/          <- libtcc1.a + win32/lib/*.def import descriptors
+#   $INSTALL_DIR/tcc/libtcc/       <- libtcc embedding API (libtcc.a + libtcc.h)
+# tcc's default runtime-tccdir is dirname(tcc.exe), which for our layout would
+# resolve to bin/ and miss the resources. The 0001-config-tccdir-relative-to-bin
+# patch (under patches/tinycc/mob/) augments libtcc.c::config_tccdir_w32 to
+# append "/../tcc" to the dirname result, so resource lookups land at the
+# sibling tcc/ tree. Keeps bin/ uncluttered while remaining patch-source-only
+# (no launcher binary, no .bat wrapper, no second PATH entry).
 #
 # Phase-2 work (binaries tcc PRODUCES being Win98-clean) is a separate audit
 # pass over tccpe.c + bundled CRT (win32/lib/crt1.c etc.) + bundled headers.
@@ -53,6 +55,16 @@ require_executable "$CROSS_BIN_DIR/${TARGET}-gcc" "Missing $TARGET-gcc in $CROSS
 require_executable wine "wine is required (libtcc1.a step needs to run tcc.exe under wine)"
 
 export PATH="$CROSS_BIN_DIR:$PATH"
+
+# === STEP 1b: Apply tinycc patches ===
+# Currently a single-patch series — 0001-config-tccdir-relative-to-bin patches
+# libtcc.c::config_tccdir_w32 to append "/../tcc" to the dirname result, so
+# tcc.exe in $INSTALL_DIR/bin/ resolves its resources at $INSTALL_DIR/tcc/
+# instead of $INSTALL_DIR/bin/ (which is the shared bin and would mix tcc's
+# include/ + lib/ + libtcc/ in with other extras tools). Idempotent via
+# apply-patches.sh's marker-file short-circuit.
+log "applying tinycc patches"
+"$REPO_ROOT/scripts/apply-patches.sh" tinycc "${TINYCC_COMPONENT_VERSION:-mob}"
 
 # tcc's configure mangles ccache wrapping. It applies cross-prefix as a
 # string prepend on `$CC` (configure line ~298: `cc="${cross_prefix}${cc}"`),
@@ -150,14 +162,30 @@ fi
 
 # === STEP 6: Install ===
 # `make install` would call into install-win in the Makefile, which assumes
-# a Windows-host install layout (BINDIR == TCCDIR, everything next to
-# tcc.exe). Our extras package puts tcc.exe in bin/ next to other tools, so
-# we manually copy what we need into a self-contained tree under bin/.
+# the upstream Windows install layout (BINDIR == TCCDIR, everything next to
+# tcc.exe). We split: tcc.exe ships in the shared bin/, resources in a
+# sibling tcc/ tree that the 0001 patch teaches the runtime to find via
+# "<bin>/../tcc".
 INSTALL_BIN="$INSTALL_DIR/bin"
-TCC_RES="$INSTALL_BIN"  # tcc resolves tccdir = dirname(tcc.exe) on Win32
+TCC_RES="$INSTALL_DIR/tcc"
+
+# Clean any prior install of tcc resources, plus the LEGACY in-bin layout
+# from before the 0001-config-tccdir-relative-to-bin patch existed. Without
+# the latter, a re-run that hits is_done=no would leave bin/include/ and
+# bin/libtcc/ orphaned and we'd ship them in the zip alongside the new tcc/
+# tree. Safe to remove unconditionally — nothing else in the extras package
+# writes to bin/include or bin/libtcc.
+rm -rf "${TCC_RES:?}" "${INSTALL_BIN:?}/include" "${INSTALL_BIN:?}/libtcc"
+# bin/lib was added by the previous layout for libtcc1.a + *.def. Remove
+# only if it looks like the tcc lib (libtcc1.a present) — generic guard
+# against future-tools-add-bin-lib-too scenarios.
+if [[ -f "$INSTALL_BIN/lib/libtcc1.a" ]]; then
+    rm -rf "${INSTALL_BIN:?}/lib"
+fi
+
 mkdir -p "$INSTALL_BIN" "$TCC_RES/include" "$TCC_RES/lib" "$TCC_RES/libtcc"
 
-# Compiler
+# Compiler — lives in the shared bin/ next to other extras tools.
 cp "$BUILD_DIR/tcc.exe" "$INSTALL_BIN/tcc.exe"
 
 # Target headers — tcc's bundled minimal-mingw replacement plus the libc-style

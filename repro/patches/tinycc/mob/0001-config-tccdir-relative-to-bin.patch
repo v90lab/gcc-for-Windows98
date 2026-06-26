@@ -1,0 +1,38 @@
+From: gcc-for-Windows98
+Subject: [PATCH] config_tccdir_w32: resolve resources at ../tcc relative to tcc.exe
+
+The extras toolset packages tcc.exe in a SHARED bin/ directory next to
+gcc/binutils/busybox/etc., so we can't install tcc's headers + libtcc1.a
++ *.def under bin/ as sibling subdirs without polluting the bin/ namespace.
+Move tcc's resources to <prefix>/tcc/ (sibling of bin/) and patch the
+runtime tccdir resolver to append "/../tcc" to the dirname of tcc.exe.
+
+Before: tccdir = dirname(tcc.exe) = <prefix>/bin
+After:  tccdir = dirname(tcc.exe) + "/../tcc" = <prefix>/bin/../tcc
+        (CreateFile / fopen downstream collapse the "../" segment, so
+        actual resource lookups land at <prefix>/tcc/{include,lib,libtcc}.)
+
+The change is contained in config_tccdir_w32 — it only fires when
+CONFIG_TCCDIR isn't pre-baked at build time, which is our case for
+--targetos=WIN32 builds.  Buffer is MAX_PATH (260); appended literal is
+8 bytes — safe under any practical install path on Win98 (FAT32's path
+length cap is well below MAX_PATH).
+
+diff --git a/libtcc.c b/libtcc.c
+--- a/libtcc.c
++++ b/libtcc.c
+@@ -111,6 +111,14 @@ static inline char *config_tccdir_w32(char *path)
+     if (p > path)
+         --p;
+     *p = 0;
++    /* gcc-for-Windows98 layout: tcc.exe lives in <prefix>/bin/ but its
++       headers, libtcc1.a, *.def, libtcc.a, libtcc.h live in <prefix>/tcc/
++       — out of the shared bin/ directory.  Append "/../tcc" so resource
++       lookups (tcc_add_sysinclude_path / tcc_add_library_path) land at
++       <prefix>/tcc/.  Path ops downstream (CreateFile / fopen) collapse
++       the "../" segment.  Buffer is MAX_PATH (260); appended literal is
++       8 bytes — safe under any practical install path. */
++    strcat(path, "/../tcc");
+     return path;
+ }
+ #define CONFIG_TCCDIR config_tccdir_w32(alloca(MAX_PATH))

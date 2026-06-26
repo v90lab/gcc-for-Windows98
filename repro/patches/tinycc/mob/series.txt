@@ -1,0 +1,1 @@
+0001-config-tccdir-relative-to-bin.patch

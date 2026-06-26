@@ -89,6 +89,9 @@ apply_component() {
         make)
             source_dir="${SRC_DIR}/make"
             ;;
+        tinycc)
+            source_dir="${SRC_DIR}/tinycc"
+            ;;
         *)
             log "ERROR: Unknown component: $component"
             return 1
