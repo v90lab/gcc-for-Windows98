@@ -1,0 +1,77 @@
+From: gcc-for-windows98 patcher <patches@example.invalid>
+Subject: [PATCH] timeout: TerminateProcess on Win9x instead of kill+GetProcessId
+
+`busybox timeout PROG ARGS` enforces its deadline by calling
+`kill(GetProcessId(child), signo)`.  Win9x has no GetProcessId
+(our shim returns 0), and busybox's kill_signal_by_handle()
+uses CreateRemoteThread (also NT-only).  Result: the timer
+fires but the child is never signaled -- timeout becomes a
+silent no-op past its deadline.
+
+On Win9x use TerminateProcess() directly via the HANDLE
+already in scope.  Loses descendants, but enforces the
+deadline (which is the whole point of the applet).
+
+Fixes audit sites #4 and #5 from repro/docs/win9x-shim-audit.md.
+is_win9x_proc() is declared in include/mingw.h (patch 0008).
+
+---
+diff --git a/coreutils/timeout.c b/coreutils/timeout.c
+--- a/coreutils/timeout.c
++++ b/coreutils/timeout.c
+@@ -54,9 +54,17 @@
+ static void kill_child(void)
+ {
+ 	if (child != INVALID_HANDLE_VALUE) {
+-		pid_t pid = (pid_t)GetProcessId(child);
+-		if (pid)
+-			kill(pid, SIGTERM);
++		if (is_win9x_proc()) {
++			/* GetProcessId is Vista+ (returns 0 via win98-compat
++			 * shim on Win9x), and busybox's kill_signal_by_handle()
++			 * uses CreateRemoteThread which doesn't exist on Win9x.
++			 * Force-terminate via the HANDLE we already own. */
++			TerminateProcess(child, SIGTERM << 24);
++		} else {
++			pid_t pid = (pid_t)GetProcessId(child);
++			if (pid)
++				kill(pid, SIGTERM);
++		}
+ 	}
+ }
+ 
+@@ -212,16 +220,29 @@
+ 		goto finish;
+ 	status = signo == SIGKILL ? 137 : 124;
+ 
+-	pid = (pid_t)GetProcessId(child);
+-	if (pid) {
+-		kill(pid, signo);
+-
++	if (is_win9x_proc()) {
++		/* GetProcessId is Vista+; signal-by-handle uses
++		 * CreateRemoteThread (also NT-only).  Force-terminate
++		 * the child HANDLE directly to enforce the deadline. */
++		TerminateProcess(child, signo << 24);
+ 		if (kill_timeout > 0) {
+ 			if (timeout_wait(kill_timeout, child, &status))
+ 				goto finish;
+-			kill(pid, SIGKILL);
++			TerminateProcess(child, SIGKILL << 24);
+ 			status = 137;
+ 		}
++	} else {
++		pid = (pid_t)GetProcessId(child);
++		if (pid) {
++			kill(pid, signo);
++
++			if (kill_timeout > 0) {
++				if (timeout_wait(kill_timeout, child, &status))
++					goto finish;
++				kill(pid, SIGKILL);
++				status = 137;
++			}
++		}
+ 	}
+  finish:
+ 	CloseHandle(child);

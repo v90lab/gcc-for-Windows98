@@ -176,7 +176,7 @@ declare -a NATIVE_STEPS=(
 # EXTRAS_STEPS: Win98-hosted user tools packaged as gcc-win98-native-toolchain-extras.zip.
 # Ordered cheapest → heaviest so a build can fail fast on simpler tools.
 declare -a EXTRAS_STEPS=(
-  "prepare-busybox-w32|prepare-busybox-w32.sh|Prepare busybox-w32 sources (Win9x forkshell + lineedit + spawn-path patches)|builder"
+  "prepare-busybox-w32|prepare-busybox-w32.sh|Prepare busybox-w32 sources (Win9x forkshell + lineedit + spawn-path patches)|builder|patches/busybox-w32/master/series.txt"
   "build-native-busybox|build-native-busybox.sh|Build busybox-w32|builder|configs/busybox-w32.config:${WIN98_COMPAT_AR}"
   "build-native-ctags|build-native-ctags.sh|Build universal-ctags|builder|${WIN98_COMPAT_AR}"
   "build-native-make|build-native-make.sh|Build GNU make|builder|${WIN98_COMPAT_AR}"

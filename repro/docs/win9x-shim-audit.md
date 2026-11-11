@@ -38,7 +38,7 @@ where relevant.
 
 | Function (DLL) | Fallback returns | Static callers in shipped src | Load-bearing | Status |
 | --- | --- | --- | --- | --- |
-| `GetProcessId` (kernel32) | `0` (ERROR_CALL_NOT_IMPLEMENTED) | 7 busybox sites | **5** | partial (ash.c fixed by patch 0008; process.c wait_for_child fixed by 0006; 5 sites unfixed) |
+| `GetProcessId` (kernel32) | `0` (ERROR_CALL_NOT_IMPLEMENTED) | 7 busybox sites | 7 | **all fixed** — ash.c via patch 0008, process.c wait_for_child via 0006, mingw_spawn + waitpid surrogate side-table via 0013, timeout.c via 0014, xargs.c parallel ctrl_handler via 0015 |
 | `GetFinalPathNameByHandleA` (kernel32) | `0` (ERROR_CALL_NOT_IMPLEMENTED) | 0 (all callers runtime-probe) | 0 | safe — shim never invoked; degradation is the caller's existing fallback |
 | `GetSystemWow64DirectoryA` (kernel32) | `0` (ERROR_CALL_NOT_IMPLEMENTED) | 0 (all callers runtime-probe) | 0 | safe — shim never invoked |
 | `GetLogicalProcessorInformation` (kernel32) | synthesized single-core mask | 1 (muon `os_ncpus`) | 0 | safe — fallback honest, muon gets correct CPU count via GetSystemInfo |
@@ -54,9 +54,9 @@ where relevant.
 | `_fstat64` (msvcrt) | wraps `_fstati64` and widens `__time32_t → __time64_t` for the three time fields | mingw-w64 static-stdio init (every `-static` binary that does I/O) | 0 | safe — field-by-field copy; time-field widening is sign-extension. Drops `msvcrt:_fstat64` out of the PE import table on every -static binary linking `-lwin98compat` |
 | `BCryptGenRandom` (bcrypt — bundled DLL shim) | `rand()` seeded from `GetTickCount` | 0 (gnulib runtime-probes; only consumer is libstdc++ random_device at link time) | 0 | safe — non-crypto seed is documented trade-off in AGENTS.md §5.7 |
 
-**Net summary.** One unfixed load-bearing issue remains:
+**Net summary.** All previously-flagged load-bearing issues are now patched:
 
-1. `GetProcessId` — cascade-breaks most busybox `spawn`-using applets via `wait4pid(pid<=0) → -1` (detailed below). Unfixed.
+1. ~~`GetProcessId`~~ — **fixed.** ash.c (forkparent/waitpid_child) by patch 0008; process.c::wait_for_child by 0006; mingw_spawn/waitpid via a surrogate-pid side-table by 0013 (the dominant fix — restores `spawn(); wait4pid()` semantics for find -exec, xargs single-process, flock, install -o/-g, inotifyd, watch, crontab, time, libbb `spawn_and_wait`); timeout.c by 0014; xargs.c parallel ctrl_handler by 0015. Pending real-Win98 validation since none of these reproduce under Wine (per §5.8 intuition: Wine emulates NT's GetProcessId).
 2. ~~`getaddrinfo` / `getnameinfo` / `freeaddrinfo`~~ — **implemented** in [`win98_compat.c`](../win98-compat/src/win98_compat.c) via lazy-resolved `gethostbyname` / `inet_addr` / `getservbyname` / `getservbyport` / `inet_ntoa` / `gethostbyaddr` + hand-rolled byte-swap. Pending real-Win98 validation (Wine exercises only the NT-delegation path) and full consumer relink for the new emulation to reach shipped `gdb.exe` and busybox networking applets.
 
 Every other shimmed function is either safe (fallback is honest), or bypassed by callers' own runtime-probe + null-handler patterns.
@@ -74,21 +74,21 @@ documented inverse-lookup on Win9x.
 
 | # | Site | Status | Classification |
 | --- | ------ | -------- | ---------------- |
-| 1 | `busybox-w32/win32/process.c:453` `mingw_spawn` returns `GetProcessId((HANDLE)ret)` | **unfixed** | **load-bearing — root cause of widespread breakage** |
+| 1 | `busybox-w32/win32/process.c:453` `mingw_spawn` returns `GetProcessId((HANDLE)ret)` | fixed ([patch 0013](../patches/busybox-w32/master/0013-spawn-waitpid-handle-table-on-win9x.patch)) | surrogate-pid side-table; companion lookup in `waitpid` / `mingw_wait3` |
 | 2 | `busybox-w32/win32/process.c:578` `wait_for_child` | fixed ([patch 0006](../patches/busybox-w32/master/0006-wait-for-child-skip-ctrl-handler-on-win9x.patch)) | gated on `!is_win9x_proc()` |
-| 3 | `busybox-w32/findutils/xargs.c:213` parallel-mode `ctrl_handler` | **unfixed** | load-bearing on Ctrl+C path only |
-| 4 | `busybox-w32/coreutils/timeout.c:57` `kill_child` atexit | **unfixed** | load-bearing |
-| 5 | `busybox-w32/coreutils/timeout.c:215` `timeout_main` | **unfixed** | load-bearing |
+| 3 | `busybox-w32/findutils/xargs.c:213` parallel-mode `ctrl_handler` | fixed ([patch 0015](../patches/busybox-w32/master/0015-xargs-parallel-terminate-on-win9x.patch)) | `TerminateProcess(HANDLE)` on Win9x (loses descendants) |
+| 4 | `busybox-w32/coreutils/timeout.c:57` `kill_child` atexit | fixed ([patch 0014](../patches/busybox-w32/master/0014-timeout-terminate-on-win9x.patch)) | `TerminateProcess(child)` on Win9x |
+| 5 | `busybox-w32/coreutils/timeout.c:215` `timeout_main` | fixed ([patch 0014](../patches/busybox-w32/master/0014-timeout-terminate-on-win9x.patch)) | `TerminateProcess(child, signo<<24)` / SIGKILL fallback |
 | 6 | `busybox-w32/shell/ash.c:4949` `dowait` | fixed ([patch 0008](../patches/busybox-w32/master/0008-waitpid-handle-not-pid-on-win9x.patch)) | handle-derived surrogate pid |
 | 7 | `busybox-w32/shell/ash.c:6232` `forkparent` | fixed ([patch 0008](../patches/busybox-w32/master/0008-waitpid-handle-not-pid-on-win9x.patch)) | handle-derived surrogate pid |
 | — | `gcc/libsanitizer/sanitizer_win.cpp:94` `GetProcessId(GetCurrentProcess())` | safe + not shipped | uses pseudo-handle (shim returns real PID); libsanitizer not built into our toolset |
 | — | mingw-w64 headers (`processthreadsapi.h`, `audiopolicy.h`, widl `winbase.h`) | n/a | declarations only |
 | — | binutils-gdb, ctags, make, diffutils, patch, muon, pthread9x | clean | no hits |
 
-### Why site #1 is the dominant problem
+### Why site #1 was the dominant problem (now fixed by patch 0013)
 
 `mingw_spawn` is `pid_t spawn(char **)` macro-redirected from the libbb-wide
-`spawn()` (`include/mingw.h:616`). On Win9x it returns `0` (shim's documented
+`spawn()` (`include/mingw.h:616`). On Win9x it returned `0` (shim's documented
 fallback) instead of a real pid. The very next thing every caller does is feed
 it to `wait4pid`:
 
@@ -100,10 +100,19 @@ int FAST_FUNC wait4pid(pid_t pid) {
 }
 ```
 
-so **every applet using `spawn() + wait4pid()` or `spawn_and_wait()` returns -1
-immediately on Win98** instead of waiting for and reading the child's exit code.
+so **every applet using `spawn() + wait4pid()` or `spawn_and_wait()` would have
+returned -1 immediately on Win98** instead of waiting for and reading the
+child's exit code. Patch 0013 restores correct behavior via a surrogate-pid
+side-table: `mingw_spawn` derives a non-zero surrogate from the HANDLE value
+and registers `surrogate → HANDLE`; `waitpid`/`mingw_wait3` look the HANDLE
+back up on Win9x (skipping the `OpenProcess(pid)` that wants a real PID).
+The entry is released (CloseHandle) on `WAIT_OBJECT_0` and kept alive on
+`WAIT_TIMEOUT` (WNOHANG-still-running) so subsequent calls can wait again.
+NT path is untouched. busybox is single-threaded so a flat 64-slot table is
+plenty.
 
-Affected applets enabled in [`busybox-w32.config`](../configs/busybox-w32.config):
+Applets enabled in [`busybox-w32.config`](../configs/busybox-w32.config) that
+were broken by this and are now restored:
 
 - **`find -exec`** — entire `-exec` semantics broken (`find.c:829`)
 - **`xargs`** single-process path (`xargs.c:351`); `spawn_and_wait` fallbacks at 289/292
@@ -114,9 +123,19 @@ Affected applets enabled in [`busybox-w32.config`](../configs/busybox-w32.config
 - **`crontab`** — editor-session wait (`crontab.c:78`)
 - **`time <cmd>`** — `resuse_end(pid=0, ...)` (`time.c:453,463`)
 
-Sites #4/#5 break standalone `timeout` — the timer fires but `kill(pid=0, signo)`
-no-ops, so the child runs forever. Site #3 leaks children on Ctrl+C in
-`xargs --parallel`.
+Sites #4/#5 previously broke standalone `timeout` — the timer fired but
+`kill(pid=0, signo)` no-oped, so the child ran forever. Patch 0014 calls
+`TerminateProcess(child, signo<<24)` on Win9x using the in-scope HANDLE; the
+SIGKILL escalation path uses the same mechanism. Loses descendants but
+enforces the deadline (which is the point of the applet).
+
+Site #3 previously leaked children on Ctrl+C in `xargs --parallel`. Patch 0015
+walks `G.procs[]` and `TerminateProcess`'s each running child HANDLE on Win9x.
+Loses descendants of each child but kills the immediate child so it doesn't
+outlive xargs. Single-process Ctrl+C path uses `kill(-G.pid, SIGTERM)` and is
+still degraded on Win9x (with patch 0013 in place, `G.pid` is now a surrogate
+that tlhelp32 won't match anything against — same as the pre-0013 `G.pid == 0`
+short-circuit, so no regression but no fix either). Low priority.
 
 `xspawn` (the bail-on-failure wrapper) has zero callers in this tree.
 
@@ -124,26 +143,8 @@ no-ops, so the child runs forever. Site #3 leaks children on Ctrl+C in
 
 None of this reproduces under Wine — Wine emulates NT's `GetProcessId`. The
 class matches the AGENTS.md §5.8 intuition: "Win9x is permissive in the wrong
-ways; modern Windows and Wine are uniformly stricter".
-
-### Proposed fix shape
-
-Two-site patch (mirror of patch 0008's pattern):
-
-1. `mingw_spawn` in `win32/process.c:447`: derive a stable surrogate pid from the
-   handle on Win9x (`(uintptr_t)handle & 0x7FFFFFFF | 1`) instead of calling
-   `GetProcessId`. Side-table the `surrogate_pid → HANDLE` mapping so it can be
-   recovered.
-2. `waitpid` in `win32/process.c:25`: on Win9x, look up the side-table to get
-   the HANDLE directly instead of `OpenProcess(pid)`. Fall through to the
-   existing path on NT.
-
-Sites #4/#5 (`timeout`) want a separate small patch: call `TerminateProcess(child, ...)`
-directly instead of `kill(GetProcessId(child), signo)` on Win9x — the `child`
-HANDLE is already in scope.
-
-Site #3 (`xargs --parallel` Ctrl+C) can use `TerminateProcess(G.procs[i], ...)`
-on Win9x with the same logic.
+ways; modern Windows and Wine are uniformly stricter". All five fixes need
+real-Win98 hardware validation.
 
 ---
 

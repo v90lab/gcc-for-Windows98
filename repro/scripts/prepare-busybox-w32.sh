@@ -12,6 +12,13 @@ set -euo pipefail
 # the actual rebuild.
 #
 # Mirrors prepare-binutils-gdb.sh — same shape, different downstreams.
+#
+# The downstream list must cover every step that consumes the rebuilt
+# binaries, not just the ones that build or package them:
+#   - strip-extras-toolset    re-strips the freshly installed binaries (and
+#                             must precede write-extras-build-info)
+#   - write-extras-build-info records bin/ SHA-256s in BUILD.TXT; skipping it
+#                             ships a BUILD.TXT naming the previous busybox.exe
 # ============================================================================
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
@@ -19,7 +26,7 @@ source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 require_dir "$SRC_DIR/busybox-w32" "missing busybox-w32 sources; run fetch-sources.sh first"
 skip_if_done prepare-busybox-w32
 
-for downstream in build-native-busybox build-bb-shims verify-extras-package package-extras-toolset write-extras-toolchain-manifest-v2; do
+for downstream in build-native-busybox build-bb-shims verify-extras-package strip-extras-toolset write-extras-build-info package-extras-toolset write-extras-toolchain-manifest-v2; do
     sentinel="$(status_file "$downstream")"
     if [[ -f "$sentinel" ]]; then
         log "invalidating downstream sentinel: $downstream"

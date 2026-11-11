@@ -1,0 +1,43 @@
+From: gcc-for-windows98 patcher <patches@example.invalid>
+Subject: [PATCH] xargs --parallel: TerminateProcess on Win9x Ctrl+C
+
+ctrl_handler's parallel-mode branch called
+`kill(GetProcessId(G.procs[i]), SIGTERM)` on each running child.
+Win9x's GetProcessId returns 0 via shim and signal-by-handle uses
+CreateRemoteThread (NT-only), so on Win9x the parallel xargs
+Ctrl+C handler is a no-op and children outlive the parent.
+
+On Win9x, TerminateProcess() the HANDLE directly.  Loses
+descendants of each child but kills the immediate child --
+the property a SIGINT user is after when interrupting xargs.
+
+Fixes audit site #3 from repro/docs/win9x-shim-audit.md.
+Single-process Ctrl+C path (kill(-pid)) remains degraded;
+noted in the audit, low priority.
+
+---
+diff --git a/findutils/xargs.c b/findutils/xargs.c
+--- a/findutils/xargs.c
++++ b/findutils/xargs.c
+@@ -210,9 +210,18 @@
+ 			int i;
+ 
+ 			for (i = 0; i < G.running_procs; ++i) {
+-				pid_t pid = GetProcessId(G.procs[i]);
+-				if (pid > 0)
+-					kill(-pid, SIGTERM);
++				if (is_win9x_proc()) {
++					/* GetProcessId is Vista+ (returns 0 via shim);
++					 * kill_signal_by_handle uses CreateRemoteThread
++					 * (NT-only).  TerminateProcess directly on the
++					 * HANDLE -- loses descendants but kills the
++					 * immediate child so it doesn't outlive xargs. */
++					TerminateProcess(G.procs[i], SIGTERM << 24);
++				} else {
++					pid_t pid = GetProcessId(G.procs[i]);
++					if (pid > 0)
++						kill(-pid, SIGTERM);
++				}
+ 			}
+ 		}
+ # endif

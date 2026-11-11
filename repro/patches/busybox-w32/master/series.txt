@@ -10,3 +10,6 @@
 0010-winansi-vsnprintf-fix-win9x.patch
 0011-bbdbg-spawn-instrumentation.patch
 0012-mingw-stat-win9x-uid-defaults.patch
+0013-spawn-waitpid-handle-table-on-win9x.patch
+0014-timeout-terminate-on-win9x.patch
+0015-xargs-parallel-terminate-on-win9x.patch

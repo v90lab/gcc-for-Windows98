@@ -1,0 +1,145 @@
+From: gcc-for-windows98 patcher <patches@example.invalid>
+Subject: [PATCH] spawn/waitpid: surrogate-pid side-table on Win9x
+
+mingw_spawn() returned 0 on Win9x (win98-compat's GetProcessId
+shim's documented fallback), and wait4pid() short-circuits at
+`pid <= 0` before WaitForSingleObject -- so every busybox applet
+that does `pid = spawn(argv); ret = wait4pid(pid);` (or the
+libbb spawn_and_wait wrapper) reported failure regardless of
+what the child actually did.  Affected applets enabled in our
+config: find -exec, xargs single-process, flock, install -o/-g,
+inotifyd, watch, crontab, time.
+
+Fix: maintain a small side-table mapping a non-zero surrogate
+pid (derived from the HANDLE value) -> HANDLE.  mingw_spawn
+registers on Win9x; waitpid/mingw_wait3 look up; the entry is
+released (CloseHandle) on WAIT_OBJECT_0 and kept alive on
+WAIT_TIMEOUT (WNOHANG and still running).  busybox is single-
+threaded so a flat 64-slot array suffices.  NT path untouched.
+
+Companion to patch 0008 (ash forkparent/waitpid_child); see
+repro/docs/win9x-shim-audit.md for the full GetProcessId site
+list and reasoning.
+
+---
+diff --git a/win32/process.c b/win32/process.c
+--- a/win32/process.c
++++ b/win32/process.c
+@@ -22,6 +22,61 @@
+ 	return cached;
+ }
+ 
++/* Win9x surrogate-pid <-> HANDLE side-table.  GetProcessId() is Vista+;
++ * our win98-compat shim returns 0 for any non-current-process handle.
++ * So on Win9x mingw_spawn() can't hand a real PID back to wait4pid() --
++ * the value would be 0 and wait4pid() short-circuits at `pid <= 0`
++ * before WaitForSingleObject.  Instead we derive a non-zero surrogate
++ * pid from the HANDLE at spawn time, store it here, and let waitpid()
++ * look the HANDLE back up.  busybox is single-threaded so a flat
++ * table is plenty.  NT path is unaffected -- this is only consulted
++ * when is_win9x_proc(). */
++#define WIN9X_PROC_TABLE_SIZE 64
++static struct {
++	pid_t pid;
++	HANDLE handle;
++} win9x_proc_table[WIN9X_PROC_TABLE_SIZE];
++
++static pid_t win9x_register_proc(HANDLE h)
++{
++	pid_t pid = (pid_t)(((uintptr_t)h & 0x7FFFFFFF) | 1);
++	int i;
++	for (i = 0; i < WIN9X_PROC_TABLE_SIZE; i++) {
++		if (win9x_proc_table[i].pid == 0) {
++			win9x_proc_table[i].pid = pid;
++			win9x_proc_table[i].handle = h;
++			return pid;
++		}
++	}
++	/* Table full -- caller still gets a surrogate so a non-waiting
++	 * spawn (e.g. spawn-and-detach paths) keeps working; only
++	 * wait4pid() will fail (HANDLE not recoverable). */
++	return pid;
++}
++
++static HANDLE win9x_lookup_proc(pid_t pid)
++{
++	int i;
++	for (i = 0; i < WIN9X_PROC_TABLE_SIZE; i++) {
++		if (win9x_proc_table[i].pid == pid)
++			return win9x_proc_table[i].handle;
++	}
++	return NULL;
++}
++
++static void win9x_release_proc(pid_t pid)
++{
++	int i;
++	for (i = 0; i < WIN9X_PROC_TABLE_SIZE; i++) {
++		if (win9x_proc_table[i].pid == pid) {
++			CloseHandle(win9x_proc_table[i].handle);
++			win9x_proc_table[i].pid = 0;
++			win9x_proc_table[i].handle = NULL;
++			return;
++		}
++	}
++}
++
+ pid_t FAST_FUNC waitpid(pid_t pid, int *status, int options)
+ #if ENABLE_TIME
+ {
+@@ -40,8 +95,18 @@
+ 
+ 	/* Windows does not understand parent-child */
+ 	if (pid > 0 && (options == 0 || options == WNOHANG)) {
+-		if ( (proc=OpenProcess(SYNCHRONIZE|PROCESS_QUERY_INFORMATION,
+-						FALSE, pid)) != NULL ) {
++		int win9x = is_win9x_proc();
++		if (win9x) {
++			/* `pid` is a surrogate value registered by mingw_spawn();
++			 * recover the HANDLE from the side-table instead of
++			 * OpenProcess (which wants a real PID, doesn't exist for
++			 * our surrogates). */
++			proc = win9x_lookup_proc(pid);
++		} else {
++			proc = OpenProcess(SYNCHRONIZE|PROCESS_QUERY_INFORMATION,
++						FALSE, pid);
++		}
++		if (proc != NULL) {
+ 			waitcode = WaitForSingleObject(proc, options == WNOHANG ? 0 : INFINITE);
+ 			if (status)
+ 				GetExitCodeProcess(proc, &code);
+@@ -65,7 +130,15 @@
+ 				}
+ 			}
+ #endif
+-			CloseHandle(proc);
++			if (win9x) {
++				/* Process actually exited -> release the side-table
++				 * entry (CloseHandle).  WNOHANG-still-running keeps
++				 * the entry alive for the next call. */
++				if (waitcode != WAIT_TIMEOUT)
++					win9x_release_proc(pid);
++			} else {
++				CloseHandle(proc);
++			}
+ 			if (status)
+ 				*status = exit_code_to_wait_status(code);
+ 			if (waitcode == WAIT_TIMEOUT)
+@@ -450,7 +523,16 @@
+ 
+ 	ret = mingw_spawnvp(P_NOWAIT, argv[0], (char *const *)argv);
+ 
+-	return ret == -1 ? (pid_t)-1 : (pid_t)GetProcessId((HANDLE)ret);
++	if (ret == -1)
++		return (pid_t)-1;
++	/* On Win9x GetProcessId() returns 0 (win98-compat shim fallback),
++	 * which would make wait4pid() short-circuit to -1 before any wait.
++	 * Register the HANDLE in the side-table keyed by a non-zero
++	 * surrogate pid derived from the handle value; waitpid() resolves
++	 * the surrogate back to the HANDLE.  See win9x_register_proc(). */
++	if (is_win9x_proc())
++		return win9x_register_proc((HANDLE)ret);
++	return (pid_t)GetProcessId((HANDLE)ret);
+ }
+ 
+ intptr_t FAST_FUNC
