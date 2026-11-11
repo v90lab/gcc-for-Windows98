@@ -1,0 +1,27 @@
+# Long-running gcc-win98-consumer container for the current project.
+#
+#   docker compose up -d                          # start (once per session)
+#   docker compose exec consumer bash             # interactive shell
+#   docker compose exec consumer i686-w64-mingw32-gcc hello.c -o hello.exe
+#   docker compose exec consumer wine ./hello.exe
+#   docker compose down                           # stop and remove
+#
+# Prefer this over the `gcc-win98` wrapper when you'll issue many commands in
+# a session — `compose exec` is ~50ms vs `docker run`'s ~700ms cold start.
+#
+# Requires `gcc-win98-consumer:latest` in local Docker. Build it once by
+# running `./repro/build.sh` in a clone of the gcc-for-Windows98 repo.
+
+services:
+  consumer:
+    image: gcc-win98-consumer:latest
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+      - gcc-win98-consumer-ccache:/root/.ccache
+    command: ["sleep", "infinity"]
+    tty: true
+    stdin_open: true
+
+volumes:
+  gcc-win98-consumer-ccache:

@@ -1,0 +1,44 @@
+#!/bin/sh
+# gcc-win98 — run the gcc-win98-consumer Docker image with $PWD mounted at
+# /workspace. With no args, drops into bash. See README.md alongside this
+# script for full usage.
+set -e
+
+IMAGE="${GCC_WIN98_IMAGE:-gcc-win98-consumer:latest}"
+CCACHE_VOLUME="${GCC_WIN98_CCACHE_VOLUME:-gcc-win98-consumer-ccache}"
+
+TTY_OPTS=
+if [ -t 0 ] && [ -t 1 ]; then
+  TTY_OPTS="-it"
+fi
+
+USER_OPTS=
+if [ "${GCC_WIN98_USER_MAP:-0}" = "1" ]; then
+  USER_OPTS="--user $(id -u):$(id -g)"
+fi
+
+if [ $# -eq 0 ]; then
+  set -- bash
+fi
+
+# On Git Bash / MSYS for Windows, $PWD is the /msys-form path (e.g. /u/home/...)
+# which Docker Desktop's bind-mount layer doesn't understand — it needs the
+# Windows form (U:/home/... or C:/...). `pwd -W` returns that. On Linux/macOS
+# MSYSTEM is unset and $PWD is the right thing.
+if [ -n "${MSYSTEM:-}" ]; then
+  HOST_PWD="$(pwd -W)"
+else
+  HOST_PWD="$PWD"
+fi
+
+# -w //workspace: double-slash sidesteps MSYS rewriting the container-side path.
+# POSIX collapses leading // so it's a no-op on Linux.
+exec docker run --rm \
+  $TTY_OPTS \
+  $USER_OPTS \
+  -v "$HOST_PWD:/workspace" \
+  -v "$CCACHE_VOLUME:/root/.ccache" \
+  -w //workspace \
+  ${GCC_WIN98_DOCKER_ARGS:-} \
+  "$IMAGE" \
+  "$@"
