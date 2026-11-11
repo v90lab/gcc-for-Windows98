@@ -14,6 +14,10 @@ set -euo pipefail
 # So after applying the patch we invalidate the downstream sentinels so a
 # previously-built (unpatched) gdb.exe gets rebuilt + repackaged on the next
 # run.
+#
+# strip-extras-toolset and write-extras-build-info are in the list too: a
+# rebuilt gdb.exe lands unstripped (~144 MB) and BUILD.TXT records its SHA, so
+# both must re-run or the package ships an unstripped gdb and a stale BUILD.TXT.
 # ============================================================================
 
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
@@ -23,7 +27,7 @@ skip_if_done prepare-binutils-gdb
 
 run_logged prepare-binutils-gdb.log "$ROOT_DIR/scripts/apply-patches.sh" binutils-gdb "$BINUTILS_COMPONENT_VERSION"
 
-for downstream in build-native-gdb verify-extras-package package-extras-toolset write-extras-toolchain-manifest-v2; do
+for downstream in build-native-gdb verify-extras-package strip-extras-toolset write-extras-build-info package-extras-toolset write-extras-toolchain-manifest-v2; do
     sentinel="$(status_file "$downstream")"
     if [[ -f "$sentinel" ]]; then
         log "invalidating downstream sentinel: $downstream"
